@@ -1,0 +1,17 @@
+# Build output
+bin/
+obj/
+publish/
+
+# Runtime data (downloads, extracted files, logs, session, settings)
+data/
+**/data/
+
+# IDE
+.vs/
+.idea/
+*.user
+
+# OS
+Thumbs.db
+.DS_Store

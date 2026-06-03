@@ -1,0 +1,409 @@
+using DataVortex.Core.Abstractions;
+using DataVortex.Core.Configuration;
+using DataVortex.Core.Models;
+using DataVortex.Core.Pipeline;
+using Microsoft.Extensions.Logging;
+using TL;
+using WTelegram;
+
+namespace DataVortex.Core.Telegram;
+
+/// <summary>
+/// WTelegramClient (MTProto user API) wrapper. Login is fully interactive: the synchronous WTelegram
+/// <c>Config</c> callback blocks on a gate until the UI supplies the verification code / 2FA password.
+/// Real-time messages arrive push-style through an <see cref="UpdateManager"/>, which also recovers any
+/// updates missed while disconnected — so the archiver never has to poll.
+/// </summary>
+public sealed class TelegramService : ITelegramService, IDisposable
+{
+    private readonly AppPaths _paths;
+    private readonly IDownloadDeduplicator _dedup;
+    private readonly ISettingsService _settings;
+    private readonly ILogger<TelegramService> _log;
+
+    private Client? _client;
+    private UpdateManager? _manager;
+    private TelegramCredentials? _creds;
+
+    private readonly object _stateLock = new();
+    private ConnectionState _state = ConnectionState.Disconnected;
+
+    // Login bridge between WTelegram's synchronous Config callback and the async UI.
+    private readonly SemaphoreSlim _codeGate = new(0, 1);
+    private readonly SemaphoreSlim _passwordGate = new(0, 1);
+    private string? _verificationCode;
+    private string? _password;
+
+    private readonly object _watchedLock = new();
+    private readonly HashSet<long> _watched = new();
+
+    private Timer? _keepAlive;
+    private volatile bool _disposed;
+
+    public ConnectionState State { get { lock (_stateLock) return _state; } }
+    public string? LoggedInUser { get; private set; }
+
+    public event Action<ConnectionState>? StateChanged;
+    public event Action<string>? VerificationRequested;
+    public event Action<DownloadJob>? FileDetected;
+
+    public TelegramService(AppPaths paths, IDownloadDeduplicator dedup, ISettingsService settings, ILogger<TelegramService> log)
+    {
+        _paths = paths;
+        _dedup = dedup;
+        _settings = settings;
+        _log = log;
+    }
+
+    // ---------------------------------------------------------------- connection
+
+    public async Task ConnectAsync(TelegramCredentials credentials, CancellationToken ct = default)
+    {
+        _creds = credentials;
+        SetState(ConnectionState.Connecting);
+        try
+        {
+            _client = new Client(Config);
+            _client.FloodRetryThreshold = 300;   // auto-wait FLOOD_WAIT up to 5 minutes instead of throwing
+            _client.MaxAutoReconnects = 1000;    // keep reconnecting for a long-running archiver
+            _manager = _client.WithUpdateManager(OnUpdate, _paths.UpdateStateFile);
+            var user = await _client.LoginUserIfNeeded().ConfigureAwait(false);
+            LoggedInUser = string.IsNullOrWhiteSpace(user.first_name) ? user.id.ToString() : user.first_name;
+            SetState(ConnectionState.Connected);
+            _log.LogInformation("Logged in as {User} (id {Id})", LoggedInUser, user.id);
+            StartKeepAlive();
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Telegram connection failed");
+            SetState(ConnectionState.Failed);
+            throw;
+        }
+    }
+
+    /// <summary>Synchronous callback invoked by WTelegram on its own thread; blocking here is expected.</summary>
+    private string? Config(string what)
+    {
+        switch (what)
+        {
+            case "api_id": return _creds!.ApiId.ToString();
+            case "api_hash": return _creds!.ApiHash;
+            case "phone_number": return _creds!.PhoneNumber;
+            case "session_pathname": return _paths.SessionFile;
+
+            case "verification_code":
+                SetState(ConnectionState.WaitingForCode);
+                VerificationRequested?.Invoke("verification_code");
+                _codeGate.Wait();
+                return _verificationCode;
+
+            case "password":
+                SetState(ConnectionState.WaitingForPassword);
+                VerificationRequested?.Invoke("password");
+                _passwordGate.Wait();
+                return _password;
+
+            default:
+                return null; // use library default
+        }
+    }
+
+    public void ProvideVerificationCode(string code)
+    {
+        _verificationCode = code?.Trim();
+        if (_codeGate.CurrentCount == 0) _codeGate.Release();
+    }
+
+    public void ProvidePassword(string password)
+    {
+        _password = password;
+        if (_passwordGate.CurrentCount == 0) _passwordGate.Release();
+    }
+
+    public async Task DisconnectAsync()
+    {
+        _keepAlive?.Dispose();
+        _keepAlive = null;
+        if (_client is not null)
+        {
+            _client.Dispose();
+            _client = null;
+        }
+        SetState(ConnectionState.Disconnected);
+        await Task.CompletedTask;
+    }
+
+    // ---------------------------------------------------------------- updates / files
+
+    private async Task OnUpdate(Update update)
+    {
+        try
+        {
+            // UpdateNewChannelMessage derives from UpdateNewMessage, so the base case covers both
+            // channel/supergroup messages and regular group/private messages.
+            if (update is UpdateNewMessage { message: Message m })
+                HandleMessage(m);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Error handling update");
+        }
+        await Task.CompletedTask;
+    }
+
+    /// <summary>Filters, de-duplicates and (if new) enqueues an archive message. Returns true if enqueued.
+    /// Shared by live updates and history backfill.</summary>
+    private bool HandleMessage(Message message)
+    {
+        if (message.media is not MessageMediaDocument { document: Document doc }) return false;
+
+        long channelId = message.peer_id switch
+        {
+            PeerChannel pc => pc.channel_id,
+            PeerChat pchat => pchat.chat_id,
+            _ => 0
+        };
+        if (channelId == 0) return false;
+
+        bool watched;
+        lock (_watchedLock) watched = _watched.Contains(channelId);
+        if (!watched) return false;
+
+        ChatBase? chat = null;
+        _manager?.Chats.TryGetValue(channelId, out chat);
+        var title = ChatTitle(chat, channelId);
+        var fileName = GetDocumentFileName(doc);
+
+        // Only download the configured file types (archives by default) — skip plain .txt and other docs.
+        var allowed = _settings.Current.DownloadExtensions;
+        if (allowed.Count > 0 && !allowed.Contains(Path.GetExtension(fileName), StringComparer.OrdinalIgnoreCase))
+        {
+            _log.LogDebug("Skipping non-archive {File} ({Mime}) in {Channel}", fileName, doc.mime_type, title);
+            return false;
+        }
+
+        // Deduplicate: never download the same archive twice — even across different channels/times.
+        if (!_dedup.TryReserve(doc.id, doc.size, fileName))
+        {
+            _log.LogInformation("Skipping duplicate archive {File} ({Size} bytes) in {Channel} — already handled",
+                fileName, doc.size, title);
+            return false;
+        }
+
+        var job = new DownloadJob
+        {
+            ChannelId = channelId,
+            ChannelTitle = title,
+            MessageId = message.id,
+            FileName = fileName,
+            SizeBytes = doc.size,
+            MimeType = doc.mime_type,
+            ReceivedUtc = DateTime.UtcNow,
+            MessageText = message.message,
+            DocumentId = doc.id,
+            Document = doc
+        };
+
+        _log.LogInformation("File detected in {Channel}: {File} ({Size} bytes)", title, fileName, doc.size);
+        FileDetected?.Invoke(job);
+        return true;
+    }
+
+    public async Task DownloadAsync(DownloadJob job, Stream destination, IProgress<long>? progress, CancellationToken ct = default)
+    {
+        if (_client is null) throw new InvalidOperationException("Telegram client is not connected.");
+        try
+        {
+            // ThrottledStream already reports progress; WTelegram writes sequentially into it.
+            await _client.DownloadFileAsync(job.Document, destination).ConfigureAwait(false);
+        }
+        catch (RpcException ex) when (ex.Message.Contains("FILE_REFERENCE"))
+        {
+            // The document's file_reference expired while the job sat in the queue. Re-fetch the message
+            // to obtain a fresh Document, then restart the download.
+            _log.LogWarning("file_reference expired for {File}; re-fetching the message", job.FileName);
+            var fresh = await RefreshDocumentAsync(job).ConfigureAwait(false);
+            if (fresh is null) throw;
+            if (destination.CanSeek) { destination.SetLength(0); destination.Position = 0; }
+            await _client.DownloadFileAsync(fresh, destination).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Re-fetches the message carrying the archive to obtain a Document with a fresh file_reference.</summary>
+    private async Task<Document?> RefreshDocumentAsync(DownloadJob job)
+    {
+        try
+        {
+            if (_client is null || _manager is null) return null;
+            _manager.Chats.TryGetValue(job.ChannelId, out var chat);
+            InputPeer? peer = chat switch
+            {
+                Channel ch => new InputPeerChannel(ch.id, ch.access_hash),
+                Chat c => new InputPeerChat(c.id),
+                _ => null
+            };
+            if (peer is null) return null;
+
+            var res = await _client.GetMessages(peer, new InputMessage[] { new InputMessageID { id = (int)job.MessageId } }).ConfigureAwait(false);
+            var msg = res.Messages.OfType<Message>().FirstOrDefault(m => m.id == job.MessageId);
+            if (msg?.media is MessageMediaDocument { document: Document d }) return d;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Failed to refresh document for {File}", job.FileName);
+        }
+        return null;
+    }
+
+    // ---------------------------------------------------------------- history / backfill
+
+    public async Task EnsureDialogsLoadedAsync(CancellationToken ct = default)
+    {
+        if (_client is null || _manager is null) return;
+        if (_manager.Chats.Count > 0) return;
+        var dialogs = await _client.Messages_GetAllDialogs().ConfigureAwait(false);
+        dialogs.CollectUsersChats(_manager.Users, _manager.Chats);
+    }
+
+    public async Task<HistoryPage> ScanHistoryPageAsync(long channelId, int offsetId, int pageSize, CancellationToken ct = default)
+    {
+        if (_client is null || _manager is null) return new HistoryPage(0, 0, offsetId, true, 0);
+        if (!_manager.Chats.TryGetValue(channelId, out var chat))
+            return new HistoryPage(0, 0, offsetId, false, 0); // not resolved yet — retry later
+
+        InputPeer? peer = chat switch
+        {
+            Channel ch => new InputPeerChannel(ch.id, ch.access_hash),
+            Chat c => new InputPeerChat(c.id),
+            _ => null
+        };
+        if (peer is null) return new HistoryPage(0, 0, offsetId, true, 0);
+
+        var history = await _client.Messages_GetHistory(peer, offset_id: offsetId, limit: Math.Clamp(pageSize, 1, 100)).ConfigureAwait(false);
+        var messages = history.Messages.OfType<Message>().ToList();
+        if (messages.Count == 0)
+            return new HistoryPage(0, 0, offsetId, true, history.Count);
+
+        int enqueued = 0;
+        foreach (var m in messages)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (HandleMessage(m)) enqueued++;
+        }
+        return new HistoryPage(messages.Count, enqueued, messages.Min(m => m.id), false, history.Count);
+    }
+
+    // ---------------------------------------------------------------- dialogs / watched set
+
+    public async Task<IReadOnlyList<ChannelInfo>> GetDialogsAsync(CancellationToken ct = default)
+    {
+        if (_client is null) throw new InvalidOperationException("Telegram client is not connected.");
+
+        var dialogs = await _client.Messages_GetAllDialogs().ConfigureAwait(false);
+        dialogs.CollectUsersChats(_manager!.Users, _manager.Chats);
+
+        var list = new List<ChannelInfo>();
+        foreach (var chat in dialogs.chats.Values)
+        {
+            switch (chat)
+            {
+                case Channel ch:
+                    list.Add(new ChannelInfo
+                    {
+                        Id = ch.id,
+                        Title = ch.title,
+                        IsChannel = true,
+                        ParticipantsCount = ch.participants_count
+                    });
+                    break;
+                case Chat c:
+                    list.Add(new ChannelInfo
+                    {
+                        Id = c.id,
+                        Title = c.title,
+                        IsChannel = false,
+                        ParticipantsCount = c.participants_count
+                    });
+                    break;
+            }
+        }
+        return list.OrderBy(c => c.Title, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    public void SetWatchedChannels(IEnumerable<long> channelIds)
+    {
+        lock (_watchedLock)
+        {
+            _watched.Clear();
+            foreach (var id in channelIds) _watched.Add(id);
+        }
+        _log.LogInformation("Now watching {Count} channel(s)", _watched.Count);
+    }
+
+    // ---------------------------------------------------------------- keep-alive / state
+
+    private void StartKeepAlive()
+    {
+        _keepAlive?.Dispose();
+        // Connection keep-alive / health probe (NOT data polling). WTelegram auto-reconnects under the
+        // hood; this surfaces the reconnect state to the UI and verifies the link is responsive.
+        _keepAlive = new Timer(_ => _ = KeepAliveTick(), null, 60_000, 60_000);
+    }
+
+    private async Task KeepAliveTick()
+    {
+        if (_disposed || _client is null) return;
+        try
+        {
+            await _client.Help_GetConfig().ConfigureAwait(false);
+            if (State is ConnectionState.Reconnecting or ConnectionState.Failed)
+                SetState(ConnectionState.Connected);
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Keep-alive failed; WTelegram will attempt to reconnect");
+            SetState(ConnectionState.Reconnecting);
+        }
+    }
+
+    private void SetState(ConnectionState newState)
+    {
+        lock (_stateLock)
+        {
+            if (_state == newState) return;
+            _state = newState;
+        }
+        StateChanged?.Invoke(newState);
+        _log.LogInformation("Telegram state -> {State}", newState);
+    }
+
+    private static string ChatTitle(ChatBase? chat, long id) => chat switch
+    {
+        Channel ch => ch.title,
+        Chat c => c.title,
+        _ => id.ToString()
+    };
+
+    private static string GetDocumentFileName(Document doc)
+    {
+        var attr = doc.attributes?.OfType<DocumentAttributeFilename>().FirstOrDefault();
+        if (attr?.file_name is { Length: > 0 } name) return name;
+
+        var ext = doc.mime_type switch
+        {
+            "application/zip" => ".zip",
+            "application/x-7z-compressed" => ".7z",
+            "application/vnd.rar" or "application/x-rar-compressed" => ".rar",
+            "text/plain" => ".txt",
+            _ => ".bin"
+        };
+        return $"{doc.id}{ext}";
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _keepAlive?.Dispose();
+        _client?.Dispose();
+    }
+}

@@ -1,0 +1,14 @@
+<Project>
+  <!-- Common settings shared by every project in the solution. -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Version>1.0.0</Version>
+    <Product>DataVortex</Product>
+    <Company>DataVortex</Company>
+    <Authors>DataVortex</Authors>
+    <Deterministic>true</Deterministic>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+</Project>

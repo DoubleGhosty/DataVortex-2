@@ -1,0 +1,164 @@
+<UserControl x:Class="DataVortex.App.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FontFamily="Segoe UI"
+             TextElement.Foreground="{DynamicResource TextPrimary}">
+
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="Settings" Style="{StaticResource Title}"/>
+            <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap"
+                       Text="Modifie la configuration sans editer settings.json. La plupart des reglages s'appliquent immediatement."/>
+        </StackPanel>
+
+        <!-- Sections -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,20,0,0" Padding="0,0,8,0">
+            <StackPanel>
+
+                <!-- Pipeline -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,6">
+                            <TextBlock Text="Pipeline" Style="{StaticResource SectionHeader}" DockPanel.Dock="Left"/>
+                            <Border Style="{StaticResource StatusBadge}" DockPanel.Dock="Left" Margin="10,0,0,0"
+                                    Background="{DynamicResource BgElevated}">
+                                <TextBlock Text="redemarrage requis" Foreground="{DynamicResource Warning}"
+                                           FontSize="10" FontWeight="Medium"/>
+                            </Border>
+                        </DockPanel>
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,14" TextWrapping="Wrap"
+                                   Text="Workers paralleles, capacites des files et politique de retry."/>
+                        <WrapPanel>
+                            <StackPanel Width="160" Margin="0,0,14,12">
+                                <TextBlock Text="Workers download" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
+                                <TextBox Text="{Binding MaxParallelDownloads, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+                            <StackPanel Width="160" Margin="0,0,14,12">
+                                <TextBlock Text="Workers extraction" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
+                                <TextBox Text="{Binding MaxParallelProcessing, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+                            <StackPanel Width="160" Margin="0,0,14,12">
+                                <TextBlock Text="File download (capacite)" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
+                                <TextBox Text="{Binding DownloadQueueCapacity, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+                            <StackPanel Width="160" Margin="0,0,14,12">
+                                <TextBlock Text="File extraction (capacite)" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
+                                <TextBox Text="{Binding ProcessingQueueCapacity, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+                            <StackPanel Width="160" Margin="0,0,14,12">
+                                <TextBlock Text="Retries max" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
+                                <TextBox Text="{Binding MaxDownloadRetries, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+                            <StackPanel Width="160" Margin="0,0,14,12">
+                                <TextBlock Text="Delai de retry (ms)" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
+                                <TextBox Text="{Binding RetryBaseDelayMs, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Extraction -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="Extraction" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,12" TextWrapping="Wrap"
+                                   Text="Filtrage des .txt par NOM de fichier (le contenu n'est jamais inspecte)."/>
+                        <CheckBox Content="N'extraire que les .txt dont le nom contient un mot-cle"
+                                  IsChecked="{Binding ExtractOnlyMatchingTxt}"/>
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,14,0,6"
+                                   Text="Mots-cles (un par ligne)"/>
+                        <TextBox Text="{Binding ExtractKeywords, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80"
+                                 VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Download filter -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="Telechargement" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,10" TextWrapping="Wrap"
+                                   Text="Extensions telechargees (une par ligne). Vide = tout telecharger."/>
+                        <TextBox Text="{Binding DownloadExtensions, UpdateSourceTrigger=PropertyChanged}"
+                                 AcceptsReturn="True" TextWrapping="Wrap" MinHeight="72"
+                                 VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Network -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="Reseau" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,10" TextWrapping="Wrap"
+                                   Text="Limite de bande passante de telechargement. 0 = illimite."/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Text="{Binding BandwidthMBps, UpdateSourceTrigger=PropertyChanged}" Width="130"/>
+                            <TextBlock Text="Mo/s" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Backfill -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="Backfill (rattrapage de l'historique)" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,12" TextWrapping="Wrap"
+                                   Text="Quand le pipeline est inactif, parcourt l'historique des canaux surveilles pour recuperer les anciennes archives."/>
+                        <CheckBox Content="Activer le backfill" IsChecked="{Binding BackfillEnabled}"/>
+                        <WrapPanel Margin="0,14,0,0">
+                            <StackPanel Width="210" Margin="0,0,14,0">
+                                <TextBlock Text="Delai d'inactivite (secondes)" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
+                                <TextBox Text="{Binding BackfillIdleSeconds, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+                            <StackPanel Width="210">
+                                <TextBlock Text="Taille de page (1-100)" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
+                                <TextBox Text="{Binding BackfillPageSize, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Appearance -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="Apparence" Style="{StaticResource SectionHeader}" Margin="0,0,0,10"/>
+                        <CheckBox Content="Interface en theme clair" IsChecked="{Binding IsLightTheme}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Passculture / 2captcha -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,0">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,6">
+                            <TextBlock Text="Passculture / 2captcha" Style="{StaticResource SectionHeader}" DockPanel.Dock="Left"/>
+                            <Border Style="{StaticResource StatusBadge}" DockPanel.Dock="Left" Margin="10,0,0,0"
+                                    Background="{DynamicResource BgElevated}">
+                                <TextBlock Text="redemarrage requis" Foreground="{DynamicResource Warning}"
+                                           FontSize="10" FontWeight="Medium"/>
+                            </Border>
+                        </DockPanel>
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,10" TextWrapping="Wrap"
+                                   Text="Cle API 2captcha utilisee par le module Passculture."/>
+                        <TextBox Text="{Binding TwoCaptchaApiKey, UpdateSourceTrigger=PropertyChanged}"/>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Action bar -->
+        <DockPanel Grid.Row="2" Margin="0,16,0,0" LastChildFill="False">
+            <Button Content="Enregistrer" Command="{Binding SaveCommand}" DockPanel.Dock="Left" Margin="0,0,10,0"/>
+            <Button Content="Recharger" Style="{StaticResource Ghost}" Command="{Binding ReloadCommand}" DockPanel.Dock="Left"/>
+            <TextBlock Text="{Binding StatusText}" Style="{StaticResource Caption}" DockPanel.Dock="Right"
+                       VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="560" TextAlignment="Right"/>
+        </DockPanel>
+    </Grid>
+</UserControl>

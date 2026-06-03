@@ -1,0 +1,158 @@
+<Window x:Class="DataVortex.App.Views.LoginDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:DataVortex.App.ViewModels"
+        Title="Connect to Telegram"
+        Height="600" Width="480"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize" ShowInTaskbar="False"
+        FontFamily="Segoe UI"
+        Background="{DynamicResource Bg}"
+        TextElement.Foreground="{DynamicResource TextPrimary}">
+
+    <Grid>
+        <Border Style="{StaticResource Card}" Margin="24">
+            <DockPanel>
+                <!-- Header -->
+                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,20">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="&#xE943;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="24"
+                                   Foreground="{DynamicResource Accent}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                        <TextBlock Text="Connect to Telegram" Style="{StaticResource Title}"/>
+                    </StackPanel>
+                    <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap"
+                               Text="Sign in with your own Telegram account. Archive only channels you are a member of or administer."/>
+
+                    <!-- Step indicator -->
+                    <StackPanel Orientation="Horizontal" Margin="0,16,0,0" HorizontalAlignment="Center">
+                        <Border Width="32" Height="32" CornerRadius="16" Margin="0,0,8,0"
+                                Background="{DynamicResource Accent}">
+                            <TextBlock Text="1" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       FontSize="13" FontWeight="Bold" Foreground="{DynamicResource OnAccent}"/>
+                        </Border>
+                        <Border Width="24" Height="2" Background="{DynamicResource Divider}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <Border Width="32" Height="32" CornerRadius="16" Margin="0,0,8,0">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Background" Value="{DynamicResource BgElevated}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Stage}" Value="{x:Static vm:LoginStage.Code}">
+                                            <Setter Property="Background" Value="{DynamicResource Accent}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Stage}" Value="{x:Static vm:LoginStage.Password}">
+                                            <Setter Property="Background" Value="{DynamicResource Accent}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <TextBlock Text="2" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       FontSize="13" FontWeight="Bold" Foreground="{DynamicResource OnAccent}"/>
+                        </Border>
+                        <Border Width="24" Height="2" Background="{DynamicResource Divider}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <Border Width="32" Height="32" CornerRadius="16">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Background" Value="{DynamicResource BgElevated}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Stage}" Value="{x:Static vm:LoginStage.Password}">
+                                            <Setter Property="Background" Value="{DynamicResource Accent}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <TextBlock Text="3" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       FontSize="13" FontWeight="Bold" Foreground="{DynamicResource OnAccent}"/>
+                        </Border>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Footer -->
+                <DockPanel DockPanel.Dock="Bottom" Margin="0,16,0,0">
+                    <Button Content="Cancel" Style="{StaticResource Ghost}" Command="{Binding CancelCommand}"
+                            DockPanel.Dock="Left"/>
+                    <!-- Error display -->
+                    <Border Background="{DynamicResource BgElevated}" CornerRadius="8" Padding="12,8" Margin="12,0,0,0"
+                            Visibility="{Binding Error, Converter={StaticResource StringToVis}}">
+                        <TextBlock Text="{Binding Error}" Foreground="{DynamicResource Error}" TextWrapping="Wrap" FontSize="12"/>
+                    </Border>
+                </DockPanel>
+
+                <!-- ===== Credentials ===== -->
+                <StackPanel>
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Stage}" Value="{x:Static vm:LoginStage.Credentials}">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+
+                    <TextBlock Text="API ID" Style="{StaticResource MetricLabel}" Margin="0,0,0,6"/>
+                    <TextBox Text="{Binding ApiId, UpdateSourceTrigger=PropertyChanged}"/>
+                    <TextBlock Text="API hash" Style="{StaticResource MetricLabel}" Margin="0,14,0,6"/>
+                    <TextBox Text="{Binding ApiHash, UpdateSourceTrigger=PropertyChanged}"/>
+                    <TextBlock Text="Phone number (e.g. +33612345678)" Style="{StaticResource MetricLabel}" Margin="0,14,0,6"/>
+                    <TextBox Text="{Binding PhoneNumber, UpdateSourceTrigger=PropertyChanged}"/>
+                    <TextBlock Style="{StaticResource Caption}" Margin="0,14,0,0" TextWrapping="Wrap"
+                               Text="Get your API ID and hash at my.telegram.org. They are stored locally; the hash is DPAPI-encrypted."/>
+                    <Button Content="Connect" Command="{Binding ConnectCommand}" HorizontalAlignment="Right" Margin="0,18,0,0" MinWidth="130"/>
+                </StackPanel>
+
+                <!-- ===== Connecting ===== -->
+                <StackPanel>
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Stage}" Value="{x:Static vm:LoginStage.Connecting}">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+                    <TextBlock Text="Connecting..." Style="{StaticResource SectionHeader}" Margin="0,12,0,12"/>
+                    <ProgressBar IsIndeterminate="True" Style="{StaticResource Thin}"
+                                 Foreground="{DynamicResource Accent}"/>
+                </StackPanel>
+
+                <!-- ===== Verification code ===== -->
+                <StackPanel>
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Stage}" Value="{x:Static vm:LoginStage.Code}">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+                    <TextBlock Text="Enter the code Telegram sent you" Style="{StaticResource SectionHeader}" Margin="0,0,0,10"/>
+                    <TextBox Text="{Binding Code, UpdateSourceTrigger=PropertyChanged}" FontSize="18"
+                             FontFamily="JetBrains Mono, Cascadia Mono, Consolas" HorizontalContentAlignment="Center"/>
+                    <Button Content="Submit code" Command="{Binding SubmitCodeCommand}" HorizontalAlignment="Right" Margin="0,18,0,0" MinWidth="130"/>
+                </StackPanel>
+
+                <!-- ===== 2FA password ===== -->
+                <StackPanel>
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Stage}" Value="{x:Static vm:LoginStage.Password}">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+                    <TextBlock Text="Two-step verification password" Style="{StaticResource SectionHeader}" Margin="0,0,0,10"/>
+                    <PasswordBox x:Name="PasswordInput"/>
+                    <Button Content="Submit password" Command="{Binding SubmitPasswordCommand}" HorizontalAlignment="Right" Margin="0,18,0,0" MinWidth="150"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

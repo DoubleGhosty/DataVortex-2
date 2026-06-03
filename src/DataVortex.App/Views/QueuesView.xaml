@@ -1,0 +1,113 @@
+<UserControl x:Class="DataVortex.App.Views.QueuesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FontFamily="Segoe UI"
+             TextElement.Foreground="{DynamicResource TextPrimary}">
+
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Queues" Style="{StaticResource Title}" Margin="0,0,0,16"/>
+
+        <TabControl Grid.Row="1">
+            <!-- Download Queue -->
+            <TabItem Header="Downloads">
+                <Border Style="{StaticResource Card}" Margin="0,12,0,0" Padding="12">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Style="{StaticResource Caption}" Margin="0,0,0,10"
+                                   Text="Active download jobs from the pipeline"/>
+                        <DataGrid ItemsSource="{Binding DownloadQueue}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="File" Binding="{Binding FileName}" Width="*"/>
+                                <DataGridTextColumn Header="Channel" Binding="{Binding ChannelTitle}" Width="140"/>
+                                <DataGridTextColumn Header="Size" Binding="{Binding SizeBytes, Converter={StaticResource Bytes}}" Width="90"/>
+                                <DataGridTemplateColumn Header="Status" Width="110">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Border Style="{StaticResource StatusBadge}">
+                                                <TextBlock Text="{Binding Status}" FontSize="11" FontWeight="Medium"
+                                                           Foreground="{Binding Status, Converter={StaticResource StatusBrush}}"
+                                                           HorizontalAlignment="Center"/>
+                                            </Border>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="Progress" Width="120">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <ProgressBar Style="{StaticResource Thin}" Minimum="0" Maximum="1"
+                                                         Value="{Binding Progress, Mode=OneWay}" Width="100"
+                                                         VerticalAlignment="Center"
+                                                         Foreground="{DynamicResource Cyan}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+                </Border>
+            </TabItem>
+
+            <!-- Processing Queue -->
+            <TabItem Header="Processing">
+                <Border Style="{StaticResource Card}" Margin="0,12,0,0" Padding="12">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Style="{StaticResource Caption}" Margin="0,0,0,10"
+                                   Text="Active extraction and processing jobs"/>
+                        <DataGrid ItemsSource="{Binding ProcessingQueue}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="File" Binding="{Binding FileName}" Width="*"/>
+                                <DataGridTextColumn Header="Channel" Binding="{Binding ChannelTitle}" Width="140"/>
+                                <DataGridTextColumn Header="Type" Binding="{Binding Kind}" Width="90"/>
+                                <DataGridTemplateColumn Header="Status" Width="110">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Border Style="{StaticResource StatusBadge}">
+                                                <TextBlock Text="{Binding Status}" FontSize="11" FontWeight="Medium"
+                                                           Foreground="{Binding Status, Converter={StaticResource StatusBrush}}"
+                                                           HorizontalAlignment="Center"/>
+                                            </Border>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTextColumn Header="Txt" Binding="{Binding ExtractedCount}" Width="60"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+                </Border>
+            </TabItem>
+
+            <!-- History -->
+            <TabItem Header="History">
+                <Border Style="{StaticResource Card}" Margin="0,12,0,0" Padding="12">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Style="{StaticResource Caption}" Margin="0,0,0,10"
+                                   Text="Completed, failed, and canceled jobs"/>
+                        <DataGrid ItemsSource="{Binding History}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="File" Binding="{Binding FileName}" Width="*"/>
+                                <DataGridTextColumn Header="Channel" Binding="{Binding ChannelTitle}" Width="160"/>
+                                <DataGridTextColumn Header="Size" Binding="{Binding SizeBytes, Converter={StaticResource Bytes}}" Width="90"/>
+                                <DataGridTemplateColumn Header="Status" Width="110">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Border Style="{StaticResource StatusBadge}">
+                                                <TextBlock Text="{Binding Status}" FontSize="11" FontWeight="Medium"
+                                                           Foreground="{Binding Status, Converter={StaticResource StatusBrush}}"
+                                                           HorizontalAlignment="Center"/>
+                                            </Border>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTextColumn Header="Received (UTC)" Binding="{Binding ReceivedUtc, StringFormat=yyyy-MM-dd HH:mm:ss}" Width="160"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
+                </Border>
+            </TabItem>
+        </TabControl>
+    </Grid>
+</UserControl>

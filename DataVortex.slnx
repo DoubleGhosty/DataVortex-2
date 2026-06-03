@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DataVortex.App/DataVortex.App.csproj" />
+    <Project Path="src/DataVortex.Core/DataVortex.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DataVortex.Tests/DataVortex.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,47 @@
+<Application x:Class="DataVortex.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:DataVortex.App.ViewModels"
+             xmlns:views="clr-namespace:DataVortex.App.Views"
+             xmlns:conv="clr-namespace:DataVortex.App.Converters">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- Index 0 is the theme palette, swapped at runtime by ThemeManager. -->
+                <ResourceDictionary Source="Themes/Dark.xaml"/>
+                <ResourceDictionary Source="Themes/Controls.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- Converters -->
+            <conv:BytesToHumanConverter x:Key="Bytes"/>
+            <conv:StatusToBrushConverter x:Key="StatusBrush"/>
+            <conv:InverseBoolConverter x:Key="InverseBool"/>
+            <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis"/>
+            <conv:StringToVisibilityConverter x:Key="StringToVis"/>
+            <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+            <!-- ViewModel -> View mapping for the content area -->
+            <DataTemplate DataType="{x:Type vm:DashboardViewModel}">
+                <views:DashboardView/>
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:ChannelsViewModel}">
+                <views:ChannelsView/>
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:QueuesViewModel}">
+                <views:QueuesView/>
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:FilesViewModel}">
+                <views:FilesView/>
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:AccountsViewModel}">
+                <views:AccountsView/>
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
+                <views:SettingsView/>
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vm:LogViewModel}">
+                <views:LogView/>
+            </DataTemplate>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
