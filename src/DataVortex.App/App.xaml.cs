@@ -108,9 +108,22 @@ public partial class App : Application
             sp.GetRequiredService<ISettingsService>().Current.TwoCaptchaApiKey,
             sp.GetRequiredService<ILogger<DataVortex.Core.Passculture.TwoCaptchaService>>()));
 
-        services.AddSingleton(sp => new DataVortex.Core.Passculture.PasscultureClient(
-            new System.Net.Http.HttpClient { BaseAddress = new Uri("https://backend.passculture.app/") },
-            sp.GetService<DataVortex.Core.Passculture.TwoCaptchaService>()));
+        services.AddSingleton(sp =>
+        {
+            var cfg = sp.GetRequiredService<ISettingsService>().Current;
+            var handler = new System.Net.Http.HttpClientHandler();
+            if (cfg.ProxyEnabled && !string.IsNullOrWhiteSpace(cfg.ProxyAddress))
+            {
+                handler.Proxy = new System.Net.WebProxy(cfg.ProxyAddress)
+                {
+                    Credentials = new System.Net.NetworkCredential(cfg.ProxyUsername ?? "", cfg.ProxyPassword ?? "")
+                };
+                handler.UseProxy = true;
+            }
+            return new DataVortex.Core.Passculture.PasscultureClient(
+                new System.Net.Http.HttpClient(handler) { BaseAddress = new Uri("https://backend.passculture.app/") },
+                sp.GetService<DataVortex.Core.Passculture.TwoCaptchaService>());
+        });
 
 
 

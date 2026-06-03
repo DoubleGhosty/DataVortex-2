@@ -60,4 +60,17 @@ public sealed class AppSettings
     // ---- External services ----
     // 2captcha key (optional). Keep secrets in credential store in production; settings.json is user-facing.
     public string TwoCaptchaApiKey { get; set; } = "e0650244d66d3b814d47e0646445fbac";
+
+    // ---- Proxy (used for Passculture backend requests) ----
+    /// <summary>When true, calls to the Passculture backend are routed through <see cref="ProxyAddress"/>.</summary>
+    public bool ProxyEnabled { get; set; }
+
+    /// <summary>Proxy URL, e.g. http://na.proxy.2captcha.com:2334. Kept in settings.json, not hard-coded.</summary>
+    public string ProxyAddress { get; set; } = "";
+
+    /// <summary>Proxy authentication username (optional).</summary>
+    public string ProxyUsername { get; set; } = "";
+
+    /// <summary>Proxy authentication password (optional).</summary>
+    public string ProxyPassword { get; set; } = "";
 }

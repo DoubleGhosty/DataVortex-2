@@ -154,6 +154,35 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Proxy (Passculture) -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,6">
+                            <TextBlock Text="Proxy (requetes Passculture)" Style="{StaticResource SectionHeader}" DockPanel.Dock="Left"/>
+                            <Border Style="{StaticResource StatusBadge}" DockPanel.Dock="Left" Margin="10,0,0,0"
+                                    Background="{DynamicResource BgElevated}">
+                                <TextBlock Text="redemarrage requis" Foreground="{DynamicResource Warning}"
+                                           FontSize="10" FontWeight="Medium"/>
+                            </Border>
+                        </DockPanel>
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,10" TextWrapping="Wrap"
+                                   Text="Route les requetes vers le backend Passculture via un proxy HTTP (ex. 2captcha residentiel). Identifiants stockes dans settings.json, pas dans le code."/>
+                        <CheckBox Content="Activer le proxy" IsChecked="{Binding ProxyEnabled}"/>
+                        <TextBlock Text="Adresse (ex. http://na.proxy.2captcha.com:2334)" Style="{StaticResource Caption}" Margin="0,14,0,6"/>
+                        <TextBox Text="{Binding ProxyAddress, UpdateSourceTrigger=PropertyChanged}"/>
+                        <WrapPanel Margin="0,12,0,0">
+                            <StackPanel Width="280" Margin="0,0,14,0">
+                                <TextBlock Text="Utilisateur" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
+                                <TextBox Text="{Binding ProxyUsername, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+                            <StackPanel Width="280">
+                                <TextBlock Text="Mot de passe" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
+                                <TextBox Text="{Binding ProxyPassword, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
                 <!-- Passculture / 2captcha -->
                 <Border Style="{StaticResource Card}" Margin="0,0,0,0">
                     <StackPanel>

@@ -56,6 +56,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     // ---- Passculture / 2captcha (restart required) ----
     [ObservableProperty] private string twoCaptchaApiKey = "";
 
+    // ---- Proxy for Passculture (restart required) ----
+    [ObservableProperty] private bool proxyEnabled;
+    [ObservableProperty] private string proxyAddress = "";
+    [ObservableProperty] private string proxyUsername = "";
+    [ObservableProperty] private string proxyPassword = "";
+
     [ObservableProperty] private string statusText = "";
 
     // ---- Updates ----
@@ -105,6 +111,11 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         IsLightTheme = s.Theme == AppTheme.Light;
         TwoCaptchaApiKey = s.TwoCaptchaApiKey ?? "";
+
+        ProxyEnabled = s.ProxyEnabled;
+        ProxyAddress = s.ProxyAddress ?? "";
+        ProxyUsername = s.ProxyUsername ?? "";
+        ProxyPassword = s.ProxyPassword ?? "";
 
         StatusText = "";
     }
@@ -189,6 +200,12 @@ public sealed partial class SettingsViewModel : ObservableObject
         s.Theme = newTheme;
         s.TwoCaptchaApiKey = (TwoCaptchaApiKey ?? "").Trim();
 
+        // Proxy (restart required — the HttpClient is built once at startup).
+        s.ProxyEnabled = ProxyEnabled;
+        s.ProxyAddress = (ProxyAddress ?? "").Trim();
+        s.ProxyUsername = (ProxyUsername ?? "").Trim();
+        s.ProxyPassword = (ProxyPassword ?? "").Trim();
+
         _settings.Save();
 
         // Apply everything that can take effect without a restart.
@@ -200,7 +217,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         // Reflect clamped/normalised values back into the fields, then report.
         LoadFromSettings();
-        StatusText = "Enregistré. Les workers/files/retries et la clé 2captcha prennent effet au prochain démarrage.";
+        StatusText = "Enregistré. Workers/files/retries, clé 2captcha et proxy prennent effet au prochain démarrage.";
         _log.LogInformation("Settings saved from the settings panel");
     }
 
