@@ -102,6 +102,12 @@
                             <TextBox Text="{Binding BandwidthMBps, UpdateSourceTrigger=PropertyChanged}" Width="130"/>
                             <TextBlock Text="Mo/s" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="10,0,0,0"/>
                         </StackPanel>
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,16,0,10" TextWrapping="Wrap"
+                                   Text="Morceaux telecharges en parallele par fichier (defaut WTelegram = 2). 8-16 accelere fortement sur liaison a forte latence ; trop haut = risque de FLOOD_WAIT. Applique immediatement."/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Text="{Binding ParallelTransfers, UpdateSourceTrigger=PropertyChanged}" Width="130"/>
+                            <TextBlock Text="parties // (1-32)" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 

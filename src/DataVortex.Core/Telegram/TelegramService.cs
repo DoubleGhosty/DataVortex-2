@@ -66,6 +66,7 @@ public sealed class TelegramService : ITelegramService, IDisposable
             _client = new Client(Config);
             _client.FloodRetryThreshold = 300;   // auto-wait FLOOD_WAIT up to 5 minutes instead of throwing
             _client.MaxAutoReconnects = 1000;    // keep reconnecting for a long-running archiver
+            ApplyTransferTuning();               // parallel chunks per file — main download-speed lever
             _manager = _client.WithUpdateManager(OnUpdate, _paths.UpdateStateFile);
             var user = await _client.LoginUserIfNeeded().ConfigureAwait(false);
             LoggedInUser = string.IsNullOrWhiteSpace(user.first_name) ? user.id.ToString() : user.first_name;
@@ -79,6 +80,19 @@ public sealed class TelegramService : ITelegramService, IDisposable
             SetState(ConnectionState.Failed);
             throw;
         }
+    }
+
+    /// <summary>Applies download-tuning to the live client: how many file chunks WTelegram fetches in
+    /// parallel per file. WTelegram's own default is a conservative 2; raising it is the main lever for
+    /// download speed on high-latency links. Clamped to 1..32 to avoid FLOOD_WAIT. Safe to call anytime —
+    /// a no-op until the client exists, and re-applied on every (re)connect.</summary>
+    public void ApplyTransferTuning()
+    {
+        var c = _client;
+        if (c is null) return;
+        var n = Math.Clamp(_settings.Current.ParallelTransfersPerFile, 1, 32);
+        c.ParallelTransfers = n;
+        _log.LogInformation("Download ParallelTransfers set to {N}", n);
     }
 
     /// <summary>Synchronous callback invoked by WTelegram on its own thread; blocking here is expected.</summary>

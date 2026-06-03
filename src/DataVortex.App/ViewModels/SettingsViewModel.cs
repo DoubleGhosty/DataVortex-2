@@ -21,6 +21,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly ISettingsService _settings;
     private readonly IPipelineCoordinator _coordinator;
     private readonly IBackfillService _backfill;
+    private readonly ITelegramService _telegram;
     private readonly ILogger<SettingsViewModel> _log;
 
     // ---- Pipeline (restart required) ----
@@ -33,6 +34,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     // ---- Network (live) ----
     [ObservableProperty] private string bandwidthMBps = "";
+    [ObservableProperty] private string parallelTransfers = "";
 
     // ---- Extraction (live) ----
     [ObservableProperty] private bool extractOnlyMatchingTxt;
@@ -55,11 +57,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string statusText = "";
 
     public SettingsViewModel(ISettingsService settings, IPipelineCoordinator coordinator,
-        IBackfillService backfill, ILogger<SettingsViewModel> log)
+        IBackfillService backfill, ITelegramService telegram, ILogger<SettingsViewModel> log)
     {
         _settings = settings;
         _coordinator = coordinator;
         _backfill = backfill;
+        _telegram = telegram;
         _log = log;
         LoadFromSettings();
     }
@@ -80,6 +83,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         BandwidthMBps = s.BandwidthLimitBytesPerSecond <= 0
             ? "0"
             : (s.BandwidthLimitBytesPerSecond / (1024.0 * 1024.0)).ToString("0.###", CultureInfo.InvariantCulture);
+        ParallelTransfers = s.ParallelTransfersPerFile.ToString();
 
         ExtractOnlyMatchingTxt = s.ExtractOnlyMatchingTxt;
         ExtractKeywords = string.Join(Environment.NewLine, s.ExtractKeywords);
@@ -117,6 +121,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         // Network (live).
         s.BandwidthLimitBytesPerSecond = ParseBandwidthBytes(BandwidthMBps, s.BandwidthLimitBytesPerSecond);
+        s.ParallelTransfersPerFile = ParseInt(ParallelTransfers, 1, 32, s.ParallelTransfersPerFile);
 
         // Extraction (live).
         s.ExtractOnlyMatchingTxt = ExtractOnlyMatchingTxt;
@@ -143,6 +148,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         // Apply everything that can take effect without a restart.
         _coordinator.UpdateBandwidthLimit(s.BandwidthLimitBytesPerSecond);
+        _telegram.ApplyTransferTuning();
         if (BackfillEnabled != _backfill.IsEnabled)
             _backfill.SetEnabled(BackfillEnabled); // SetEnabled persists + republishes state on its own
         ThemeManager.Apply(newTheme);

@@ -19,6 +19,12 @@ public sealed class AppSettings
     /// <summary>Global download bandwidth cap in bytes/second. 0 = unlimited.</summary>
     public long BandwidthLimitBytesPerSecond { get; set; } = 0;
 
+    /// <summary>How many file chunks WTelegram downloads in parallel per file (its <c>ParallelTransfers</c>).
+    /// WTelegram's own default is a cautious 2; raising it is the main lever for download speed on
+    /// high-latency links (e.g. a cloud server far from the file's DC). Too high can trigger FLOOD_WAIT,
+    /// so it is clamped to 1..32 when applied.</summary>
+    public int ParallelTransfersPerFile { get; set; } = 8;
+
     // ---- Extraction filtering ----
     /// <summary>When true, only *.txt whose <b>filename</b> contains one of <see cref="ExtractKeywords"/>
     /// are extracted; the rest are skipped. Content is not inspected. Set false to extract every *.txt.</summary>

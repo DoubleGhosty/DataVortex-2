@@ -35,5 +35,8 @@ public interface ITelegramService
 
     Task DownloadAsync(DownloadJob job, Stream destination, IProgress<long>? progress, CancellationToken ct = default);
 
+    /// <summary>Pushes download-tuning settings (parallel chunks per file) onto the live client. No-op if not connected.</summary>
+    void ApplyTransferTuning();
+
     Task DisconnectAsync();
 }
