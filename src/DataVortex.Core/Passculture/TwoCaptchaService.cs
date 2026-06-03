@@ -23,7 +23,7 @@ public sealed class TwoCaptchaService
     /// </summary>
     public async Task<string?> SolveRecaptchaAsync(string siteKey, string pageUrl, int maxAttempts = 24, int pollIntervalMs = 5000, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(_apiKey)) return null;
+        if (string.IsNullOrWhiteSpace(_apiKey)) { _log.LogWarning("2captcha: aucune clé API configurée"); return null; }
         try
         {
             var form = new Dictionary<string, string>
@@ -34,6 +34,7 @@ public sealed class TwoCaptchaService
                 ["pageurl"] = pageUrl,
                 ["json"] = "1"
             };
+            _log.LogInformation("2captcha: soumission d'un recaptcha…");
             using var resp = await _http.PostAsync("/in.php", new FormUrlEncodedContent(form), ct).ConfigureAwait(false);
             var s = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             using var doc = JsonDocument.Parse(s);
@@ -42,6 +43,7 @@ public sealed class TwoCaptchaService
             {
                 var id = req.GetString();
                 if (string.IsNullOrWhiteSpace(id)) return null;
+                _log.LogInformation("2captcha: capté (id={Id}), attente de résolution…", id);
                 // poll
                 for (int i = 0; i < maxAttempts; i++)
                 {
@@ -55,20 +57,31 @@ public sealed class TwoCaptchaService
                     {
                         var status = st2.GetInt32();
                         if (status == 1 && root2.TryGetProperty("request", out var req2))
+                        {
+                            _log.LogInformation("2captcha: résolu (id={Id})", id);
                             return req2.GetString();
+                        }
                         if (status == 0 && root2.TryGetProperty("request", out var err))
                         {
                             var e = err.GetString();
                             if (!string.Equals(e, "CAPCHA_NOT_READY", StringComparison.OrdinalIgnoreCase))
+                            {
+                                _log.LogWarning("2captcha: échec (id={Id}): {Error}", id, e);
                                 return null; // error
+                            }
                         }
                     }
                 }
+                _log.LogWarning("2captcha: timeout (id={Id}) après {Max} tentatives", id, maxAttempts);
+            }
+            else
+            {
+                _log.LogWarning("2captcha: soumission refusée: {Response}", s);
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // swallow - return null to indicate failure
+            _log.LogWarning(ex, "2captcha: exception pendant la résolution");
         }
         return null;
     }

@@ -76,7 +76,7 @@ public sealed class PasscultureClient
                 }
                 catch { /* best-effort */ }
             }
-            _log.LogDebug("Posting signin body: {Body}", json);
+            _log.LogInformation("→ Passculture POST signin pour {Email}", identifier);
             using var resp = await _http.PostAsync("native/v1/signin", content, ct).ConfigureAwait(false);
             var s = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             _log.LogDebug("Signin response: {Response}", s);
@@ -95,7 +95,8 @@ public sealed class PasscultureClient
                 {
                     if (st.TryGetProperty("statusType", out var stt)) statusType = stt.GetString();
                 }
-                _log.LogInformation("Signin success={Success} accessTokenPresent={HasToken} accountState={State}", resp.IsSuccessStatusCode, access is not null, accountState);
+                _log.LogInformation("← Passculture signin {Email}: HTTP {Code} success={Success} token={HasToken} state={State}",
+                    identifier, (int)resp.StatusCode, resp.IsSuccessStatusCode && access is not null, access is not null, accountState);
                 return new SignInResult { Success = resp.IsSuccessStatusCode && access is not null, AccessToken = access, RefreshToken = refresh, AccountState = accountState, StatusType = statusType, StatusCode = (int)resp.StatusCode, Raw = s };
             }
             catch
@@ -108,6 +109,23 @@ public sealed class PasscultureClient
             _log.LogWarning(ex, "Signin exception");
             return new SignInResult { Success = false, Raw = ex.Message };
         }
+    }
+
+    /// <summary>Solves ONE Passculture login captcha via 2captcha and returns the token (or null if no solver
+    /// is configured / it failed). Callers solve once per account and reuse the token across 429 retries, so a
+    /// rate-limited account never spends more than one captcha. When a non-null token is passed to
+    /// <see cref="SignInAsync"/>, that method does not solve again.</summary>
+    public async Task<string?> SolveCaptchaAsync(CancellationToken ct = default)
+    {
+        if (_twoCaptcha is null) return null;
+        try
+        {
+            return await _twoCaptcha.SolveRecaptchaAsync(
+                siteKey: "6LdWB0caAAAAAKfVe3he0FqXQXOepICF-5aZh_rQ",
+                pageUrl: "https://passculture.app/connexion?preventCancellation=true",
+                ct: ct).ConfigureAwait(false);
+        }
+        catch { return null; }
     }
 
     public async Task<MeResult> GetMeAsync(string accessToken, CancellationToken ct = default)
