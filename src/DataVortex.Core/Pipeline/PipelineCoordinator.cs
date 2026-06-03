@@ -1,4 +1,5 @@
 using DataVortex.Core.Abstractions;
+using DataVortex.Core.Accounts;
 using DataVortex.Core.Configuration;
 using DataVortex.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -22,6 +23,7 @@ public sealed class PipelineCoordinator : IPipelineCoordinator, IDisposable
     private readonly ProcessingPipeline _processing;
     private readonly IDownloadDeduplicator _dedup;
     private readonly DataVortex.Core.Passculture.PasscultureClient? _passClient;
+    private readonly IAccountTestRegistry _accounts;
     private CancellationTokenSource? _cts;
 
     public bool IsRunning { get; private set; }
@@ -38,13 +40,15 @@ public sealed class PipelineCoordinator : IPipelineCoordinator, IDisposable
     public PipelineCoordinator(
         ITelegramService telegram, IStorageService storage, IMetricsService metrics,
         IArchiveExtractor extractor, ISettingsService settings, ILoggerFactory loggerFactory,
-        IDownloadDeduplicator dedup, DataVortex.Core.Passculture.PasscultureClient? passClient)
+        IDownloadDeduplicator dedup, IAccountTestRegistry accounts,
+        DataVortex.Core.Passculture.PasscultureClient? passClient)
     {
         _telegram = telegram;
         _storage = storage;
         _settings = settings;
         _metrics = metrics;
         _dedup = dedup;
+        _accounts = accounts;
         _log = loggerFactory.CreateLogger<PipelineCoordinator>();
         _passClient = passClient;
 
@@ -59,7 +63,7 @@ public sealed class PipelineCoordinator : IPipelineCoordinator, IDisposable
         _processing = new ProcessingPipeline(
             extractor, storage, metrics, _pauseGate,
             loggerFactory.CreateLogger<ProcessingPipeline>(),
-            s.MaxParallelProcessing, s.ProcessingQueueCapacity, passClient);
+            s.MaxParallelProcessing, s.ProcessingQueueCapacity, passClient, _accounts);
 
         _download.JobChanged += OnDownloadJobChanged;
         _processing.JobChanged += j => ProcessingJobChanged?.Invoke(j);
@@ -90,49 +94,23 @@ public sealed class PipelineCoordinator : IPipelineCoordinator, IDisposable
         IsRunning = true;
         _log.LogInformation("Pipeline coordinator started");
 
-        // Kick off background scan to test any credentials found in persisted metadata that weren't auto-tested
-        if (_processing is not null && _passClient is not null)
+        // Background catch-up: test credentials in existing metadata that were never tested. Routed through
+        // the registry so an account is never sent to the backend twice (no wasted captchas).
+        if (_passClient is not null)
         {
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    var records = _storage.LoadRecords();
-                    foreach (var r in records)
+                    foreach (var r in _storage.LoadRecords())
                     {
-                        if (r.Credentials is null) continue;
+                        if (r.Credentials is null || r.Credentials.Count == 0) continue;
                         var changed = false;
                         for (int i = 0; i < r.Credentials.Count; i++)
                         {
-                            var c = r.Credentials[i];
-                            if (c.Tested) continue;
-                            try
-                            {
-                                var signin = await _passClient.SignInAsync(c.Username ?? string.Empty, c.Password ?? string.Empty, null);
-                                _log.LogInformation("Passculture signin result for {User}: success={Success}", c.Username, signin.Success);
-                                string? access = signin.AccessToken;
-                                string? refresh = signin.RefreshToken;
-                                decimal? credit = null;
-                                string? birth = null;
-                                if (signin.Success && access is not null)
-                                {
-                                    try
-                                    {
-                                        var me = await _passClient.GetMeAsync(access);
-                                        credit = me.DomainsCreditRemaining;
-                                        birth = me.BirthDate;
-                                        _log.LogInformation("Passculture /me for {User}: credit={Credit}, birth={Birth}", c.Username, credit, birth);
-                                    }
-                                    catch (Exception ex) { _log.LogWarning(ex, "Failed to get /me for {User}", c.Username); }
-                                }
-                                var updated = c with { Tested = true, TestSuccess = signin.Success, TestMessage = signin.Raw, TestedUtc = DateTime.UtcNow, AccessToken = access, RefreshToken = refresh, Credit = credit, BirthDate = birth };
-                                r.Credentials[i] = updated;
-                                changed = true;
-                            }
-                            catch (Exception ex)
-                            {
-                                _log.LogWarning(ex, "Error testing credential {User} from metadata", c.Username);
-                            }
+                            var before = r.Credentials[i];
+                            var after = await AccountTester.TestOnceAsync(_passClient, _accounts, before).ConfigureAwait(false);
+                            if (!ReferenceEquals(before, after)) { r.Credentials[i] = after; changed = true; }
                         }
                         if (changed)
                         {

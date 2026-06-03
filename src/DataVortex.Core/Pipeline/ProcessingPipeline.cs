@@ -1,6 +1,7 @@
 using System.Threading.Channels;
 using System.IO;
 using DataVortex.Core.Abstractions;
+using DataVortex.Core.Accounts;
 using DataVortex.Core.Models;
 using Microsoft.Extensions.Logging;
 
@@ -17,6 +18,7 @@ public sealed class ProcessingPipeline
     private readonly IStorageService _storage;
     private readonly IMetricsService _metrics;
     private readonly DataVortex.Core.Passculture.PasscultureClient? _passClient;
+    private readonly IAccountTestRegistry? _accounts;
     private readonly PauseGate _pauseGate;
     private readonly ILogger<ProcessingPipeline> _log;
 
@@ -33,7 +35,8 @@ public sealed class ProcessingPipeline
     public ProcessingPipeline(
         IArchiveExtractor extractor, IStorageService storage, IMetricsService metrics,
         PauseGate pauseGate, ILogger<ProcessingPipeline> log, int workerCount, int queueCapacity,
-        DataVortex.Core.Passculture.PasscultureClient? passClient = null)
+        DataVortex.Core.Passculture.PasscultureClient? passClient = null,
+        IAccountTestRegistry? accounts = null)
     {
         _extractor = extractor;
         _storage = storage;
@@ -41,6 +44,7 @@ public sealed class ProcessingPipeline
         _pauseGate = pauseGate;
         _log = log;
         _passClient = passClient;
+        _accounts = accounts;
         _workerCount = Math.Max(1, workerCount);
         _channel = Channel.CreateBounded<ProcessingJob>(new BoundedChannelOptions(Math.Max(16, queueCapacity))
         {
@@ -149,81 +153,13 @@ public sealed class ProcessingPipeline
             };
             await _storage.SaveRecordAsync(record, ct).ConfigureAwait(false);
 
-            // If passClient is available, automatically test credentials that are not yet tested
-            if (_passClient is not null && record.Credentials is not null && record.Credentials.Count > 0)
+            // Test any new credentials — but at most ONCE per account, globally, via the registry
+            // (atomic reservation before any backend call → never spends a captcha on a duplicate).
+            if (_passClient is not null && _accounts is not null && record.Credentials is not null && record.Credentials.Count > 0)
             {
                 for (int i = 0; i < record.Credentials.Count; i++)
-                {
-                    try
-                    {
-                        var cred = record.Credentials[i];
-                        if (cred.Tested) continue;
-
-                        // Try to reuse a previously-tested credential from existing metadata to avoid re-testing
-                        try
-                        {
-                            var all = _storage.LoadRecords();
-                            var found = all
-                                .Where(r => r.Credentials is not null)
-                                .SelectMany(r => r.Credentials!, (r, c) => c)
-                                .FirstOrDefault(c => string.Equals(c.Username ?? string.Empty, cred.Username ?? string.Empty, StringComparison.Ordinal) 
-                                                     && string.Equals(c.Password ?? string.Empty, cred.Password ?? string.Empty, StringComparison.Ordinal)
-                                                     && string.Equals(c.Url ?? string.Empty, cred.Url ?? string.Empty, StringComparison.Ordinal)
-                                                     && c.Tested);
-                            if (found is not null)
-                            {
-                                var reused = cred with
-                                {
-                                    Tested = true,
-                                    TestSuccess = found.TestSuccess,
-                                    TestMessage = found.TestMessage,
-                                    TestedUtc = found.TestedUtc,
-                                    AccessToken = found.AccessToken,
-                                    RefreshToken = found.RefreshToken,
-                                    Credit = found.Credit,
-                                    BirthDate = found.BirthDate,
-                                    StatusCode = found.StatusCode
-                                };
-                                record.Credentials[i] = reused;
-                                continue;
-                            }
-                        }
-                        catch
-                        {
-                            // ignore reuse errors and fall back to live testing
-                        }
-                        var signin = await _passClient.SignInAsync(cred.Username ?? string.Empty, cred.Password ?? string.Empty, null, ct).ConfigureAwait(false);
-                        var access = signin.AccessToken;
-                        var refresh = signin.RefreshToken;
-                        decimal? credit = null;
-                        string? birth = null;
-                        // If server returned 400, mark as tested but invalid and do not show in accounts list
-                        if (signin.StatusCode == 400)
-                        {
-                            var updatedInvalid = cred with { Tested = true, TestSuccess = false, TestMessage = signin.Raw, TestedUtc = DateTime.UtcNow, StatusCode = signin.StatusCode };
-                            record.Credentials[i] = updatedInvalid;
-                            continue;
-                        }
-
-                        if (signin.Success && access is not null)
-                        {
-                            try
-                            {
-                                var me = await _passClient.GetMeAsync(access, ct).ConfigureAwait(false);
-                                credit = me.DomainsCreditRemaining;
-                                birth = me.BirthDate;
-                            }
-                            catch { }
-                        }
-                        var updated = cred with { Tested = true, TestSuccess = signin.Success, TestMessage = signin.Raw, TestedUtc = DateTime.UtcNow, AccessToken = access, RefreshToken = refresh, Credit = credit, BirthDate = birth };
-                        record.Credentials[i] = updated;
-                    }
-                    catch (Exception ex)
-                    {
-                        _log.LogWarning(ex, "Automatic credential test failed for {File}", job.FileName);
-                    }
-                }
-                // persist updated record
+                    record.Credentials[i] = await AccountTester
+                        .TestOnceAsync(_passClient, _accounts, record.Credentials[i], ct).ConfigureAwait(false);
                 await _storage.SaveRecordAsync(record, ct).ConfigureAwait(false);
             }
 

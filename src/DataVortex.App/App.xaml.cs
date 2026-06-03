@@ -6,6 +6,7 @@ using DataVortex.App.Themes;
 using DataVortex.App.ViewModels;
 using DataVortex.App.Views;
 using DataVortex.Core.Abstractions;
+using DataVortex.Core.Accounts;
 using DataVortex.Core.Backfill;
 using DataVortex.Core.Configuration;
 using DataVortex.Core.Extraction;
@@ -15,6 +16,7 @@ using DataVortex.Core.Pipeline;
 using DataVortex.Core.Security;
 using DataVortex.Core.Storage;
 using DataVortex.Core.Telegram;
+using DataVortex.Core.Updates;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Serilog;
@@ -89,6 +91,10 @@ public partial class App : Application
         services.AddSingleton<IMetricsService, MetricsService>();
         services.AddSingleton<IArchiveExtractor, ArchiveExtractor>();
         services.AddSingleton<IDownloadDeduplicator, DownloadDeduplicator>();
+        services.AddSingleton<IAccountTestRegistry, AccountTestRegistry>();
+        services.AddSingleton<IUpdateService>(sp => new GitHubUpdateService(
+            new System.Net.Http.HttpClient(), sp.GetRequiredService<AppPaths>(),
+            sp.GetRequiredService<ILogger<GitHubUpdateService>>()));
         services.AddSingleton<ITelegramService, TelegramService>();
         services.AddSingleton<PipelineCoordinator>();
         services.AddSingleton<IPipelineCoordinator>(sp => (IPipelineCoordinator)sp.GetRequiredService<PipelineCoordinator>());

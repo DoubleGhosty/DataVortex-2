@@ -131,6 +131,21 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Updates -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="Mises a jour" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
+                        <TextBlock Text="{Binding CurrentVersionText}" Style="{StaticResource Caption}" Margin="0,0,0,10"/>
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="Verifier les mises a jour" Command="{Binding CheckUpdateCommand}" Margin="0,0,10,0"/>
+                            <Button Content="Telecharger et installer" Style="{StaticResource Ghost}"
+                                    Command="{Binding InstallUpdateCommand}"
+                                    Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVis}}"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding UpdateStatus}" Style="{StaticResource Caption}" Margin="0,10,0,0" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- Appearance -->
                 <Border Style="{StaticResource Card}" Margin="0,0,0,14">
                     <StackPanel>

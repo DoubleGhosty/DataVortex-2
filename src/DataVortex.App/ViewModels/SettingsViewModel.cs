@@ -5,6 +5,7 @@ using DataVortex.App.Themes;
 using DataVortex.Core.Abstractions;
 using DataVortex.Core.Backfill;
 using DataVortex.Core.Configuration;
+using DataVortex.Core.Updates;
 using Microsoft.Extensions.Logging;
 
 namespace DataVortex.App.ViewModels;
@@ -22,6 +23,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly IPipelineCoordinator _coordinator;
     private readonly IBackfillService _backfill;
     private readonly ITelegramService _telegram;
+    private readonly IUpdateService _update;
     private readonly ILogger<SettingsViewModel> _log;
 
     // ---- Pipeline (restart required) ----
@@ -56,14 +58,22 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty] private string statusText = "";
 
+    // ---- Updates ----
+    [ObservableProperty] private string currentVersionText = "";
+    [ObservableProperty] private string updateStatus = "";
+    [ObservableProperty] private bool updateAvailable;
+    private UpdateInfo? _pendingUpdate;
+
     public SettingsViewModel(ISettingsService settings, IPipelineCoordinator coordinator,
-        IBackfillService backfill, ITelegramService telegram, ILogger<SettingsViewModel> log)
+        IBackfillService backfill, ITelegramService telegram, IUpdateService update, ILogger<SettingsViewModel> log)
     {
         _settings = settings;
         _coordinator = coordinator;
         _backfill = backfill;
         _telegram = telegram;
+        _update = update;
         _log = log;
+        CurrentVersionText = $"Version {_update.CurrentVersion}";
         LoadFromSettings();
     }
 
@@ -104,6 +114,41 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         LoadFromSettings();
         StatusText = "Réglages rechargés depuis le disque.";
+    }
+
+    [RelayCommand]
+    private async Task CheckUpdateAsync()
+    {
+        UpdateStatus = "Vérification…";
+        UpdateAvailable = false;
+        var info = await _update.CheckForUpdateAsync();
+        _pendingUpdate = info;
+        if (info is null)
+        {
+            UpdateStatus = $"À jour (version {_update.CurrentVersion}).";
+        }
+        else
+        {
+            UpdateAvailable = true;
+            UpdateStatus = $"Nouvelle version {info.Version} disponible.";
+        }
+    }
+
+    [RelayCommand]
+    private async Task InstallUpdateAsync()
+    {
+        if (_pendingUpdate is null) return;
+        UpdateStatus = "Téléchargement et installation…";
+        var ok = await _update.PrepareAndLaunchUpdaterAsync(_pendingUpdate);
+        if (ok)
+        {
+            UpdateStatus = "Mise à jour prête — redémarrage…";
+            System.Windows.Application.Current.Shutdown();
+        }
+        else
+        {
+            UpdateStatus = "Échec : l'auto-update requiert un build publié (.exe). Voir les logs.";
+        }
     }
 
     [RelayCommand]

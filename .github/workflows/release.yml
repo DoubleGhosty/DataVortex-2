@@ -1,0 +1,46 @@
+name: Release
+
+# Publishes a single-file Windows build as a GitHub Release whenever a version tag is pushed.
+#   git tag v1.0.1
+#   git push origin v1.0.1
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Derive version from tag
+        id: ver
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish single-file exe
+        shell: bash
+        run: |
+          dotnet publish src/DataVortex.App/DataVortex.App.csproj \
+            -c Release -r win-x64 --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:EnableCompressionInSingleFile=true \
+            -p:Version=${{ steps.ver.outputs.version }} \
+            -o publish
+
+      - name: Create release and upload exe
+        uses: softprops/action-gh-release@v2
+        with:
+          name: DataVortex ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          files: publish/DataVortex.exe
+          generate_release_notes: true
