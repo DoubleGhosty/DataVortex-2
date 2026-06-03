@@ -11,6 +11,10 @@ public interface IDialogService
     bool ShowLogin();
     void OpenFolder(string path);
     void OpenFile(string path);
+
+    /// <summary>Opens a file picker; returns the chosen path or <c>null</c> if cancelled.</summary>
+    string? PickFile(string filter = "Text files (*.txt)|*.txt|All files (*.*)|*.*");
+
     bool Confirm(string message, string title = "DataVortex");
 }
 
@@ -46,6 +50,12 @@ public sealed class DialogService : IDialogService
                 Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
         }
         catch { /* best-effort */ }
+    }
+
+    public string? PickFile(string filter = "Text files (*.txt)|*.txt|All files (*.*)|*.*")
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog { Filter = filter, CheckFileExists = true };
+        return dlg.ShowDialog() == true ? dlg.FileName : null;
     }
 
     public bool Confirm(string message, string title = "DataVortex")

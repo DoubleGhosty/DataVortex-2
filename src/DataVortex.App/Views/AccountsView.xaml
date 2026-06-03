@@ -19,13 +19,16 @@
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
-                <DockPanel Grid.Row="0" Margin="0,0,0,14">
+                <DockPanel Grid.Row="0" Margin="0,0,0,14" LastChildFill="False">
                     <TextBlock Text="Passculture accounts found:" Style="{StaticResource Caption}" DockPanel.Dock="Left"
                                VerticalAlignment="Center"/>
                     <Border Style="{StaticResource StatusBadge}" DockPanel.Dock="Left" Margin="10,0,0,0">
                         <TextBlock Text="{Binding AccountCount, StringFormat='{}{0} account(s)'}" FontSize="13" FontWeight="SemiBold"
                                    Foreground="{DynamicResource Accent}"/>
                     </Border>
+                    <Button Content="Importer combolist" Command="{Binding ImportComboListCommand}" DockPanel.Dock="Right"/>
+                    <Button Content="Tester les comptes" Style="{StaticResource Ghost}" Command="{Binding TestAccountsCommand}"
+                            DockPanel.Dock="Right" Margin="0,0,8,0"/>
                 </DockPanel>
 
                 <DataGrid Grid.Row="1" ItemsSource="{Binding Accounts}" AutoGenerateColumns="False" IsReadOnly="True">

@@ -154,6 +154,19 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Account checker -->
+                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="Checker (comptes Passculture)" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,10" TextWrapping="Wrap"
+                                   Text="Nombre de verifications simultanees envoyees au backend (combolist, archives et bouton partagent ce plafond global). Les reponses 429 sont reessayees automatiquement. Applique immediatement."/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Text="{Binding ParallelAccountChecks, UpdateSourceTrigger=PropertyChanged}" Width="130"/>
+                            <TextBlock Text="checks simultanes (1-10)" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
                 <!-- Proxy (Passculture) -->
                 <Border Style="{StaticResource Card}" Margin="0,0,0,14">
                     <StackPanel>

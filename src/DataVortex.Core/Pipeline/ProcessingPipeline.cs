@@ -157,9 +157,14 @@ public sealed class ProcessingPipeline
             // (atomic reservation before any backend call → never spends a captcha on a duplicate).
             if (_passClient is not null && _accounts is not null && record.Credentials is not null && record.Credentials.Count > 0)
             {
-                for (int i = 0; i < record.Credentials.Count; i++)
-                    record.Credentials[i] = await AccountTester
-                        .TestOnceAsync(_passClient, _accounts, record.Credentials[i], ct).ConfigureAwait(false);
+                var creds = record.Credentials;
+                await Parallel.ForEachAsync(
+                    Enumerable.Range(0, creds.Count),
+                    new ParallelOptions { MaxDegreeOfParallelism = 10, CancellationToken = ct },
+                    async (i, token) =>
+                    {
+                        creds[i] = await AccountTester.TestOnceAsync(_passClient, _accounts, creds[i], token).ConfigureAwait(false);
+                    }).ConfigureAwait(false);
                 await _storage.SaveRecordAsync(record, ct).ConfigureAwait(false);
             }
 

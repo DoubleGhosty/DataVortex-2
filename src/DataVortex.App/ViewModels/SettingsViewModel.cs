@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DataVortex.App.Themes;
 using DataVortex.Core.Abstractions;
+using DataVortex.Core.Accounts;
 using DataVortex.Core.Backfill;
 using DataVortex.Core.Configuration;
 using DataVortex.Core.Updates;
@@ -62,6 +63,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string proxyUsername = "";
     [ObservableProperty] private string proxyPassword = "";
 
+    // ---- Account checker (applied immediately) ----
+    [ObservableProperty] private string parallelAccountChecks = "";
+
     [ObservableProperty] private string statusText = "";
 
     // ---- Updates ----
@@ -116,6 +120,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         ProxyAddress = s.ProxyAddress ?? "";
         ProxyUsername = s.ProxyUsername ?? "";
         ProxyPassword = s.ProxyPassword ?? "";
+
+        ParallelAccountChecks = s.MaxParallelAccountChecks.ToString();
 
         StatusText = "";
     }
@@ -206,11 +212,15 @@ public sealed partial class SettingsViewModel : ObservableObject
         s.ProxyUsername = (ProxyUsername ?? "").Trim();
         s.ProxyPassword = (ProxyPassword ?? "").Trim();
 
+        // Account checker (applied immediately).
+        s.MaxParallelAccountChecks = ParseInt(ParallelAccountChecks, 1, 10, s.MaxParallelAccountChecks);
+
         _settings.Save();
 
         // Apply everything that can take effect without a restart.
         _coordinator.UpdateBandwidthLimit(s.BandwidthLimitBytesPerSecond);
         _telegram.ApplyTransferTuning();
+        AccountTester.ConfigureParallelism(s.MaxParallelAccountChecks);
         if (BackfillEnabled != _backfill.IsEnabled)
             _backfill.SetEnabled(BackfillEnabled); // SetEnabled persists + republishes state on its own
         ThemeManager.Apply(newTheme);

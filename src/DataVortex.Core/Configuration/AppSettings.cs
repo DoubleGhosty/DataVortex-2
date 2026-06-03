@@ -73,4 +73,9 @@ public sealed class AppSettings
 
     /// <summary>Proxy authentication password (optional).</summary>
     public string ProxyPassword { get; set; } = "";
+
+    // ---- Account checker ----
+    /// <summary>Global cap on concurrent Passculture sign-in checks — shared by the combolist import, the
+    /// archive flow and the manual button (1..10). Each check costs a captcha; HTTP 429 is retried with backoff.</summary>
+    public int MaxParallelAccountChecks { get; set; } = 10;
 }

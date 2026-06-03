@@ -47,6 +47,8 @@ public partial class App : Application
         _provider = ConfigureServices(paths);
 
         ThemeManager.Apply(_provider.GetRequiredService<ISettingsService>().Current.Theme);
+        DataVortex.Core.Accounts.AccountTester.ConfigureParallelism(
+            _provider.GetRequiredService<ISettingsService>().Current.MaxParallelAccountChecks);
 
         var shell = _provider.GetRequiredService<ShellWindow>();
         MainWindow = shell;

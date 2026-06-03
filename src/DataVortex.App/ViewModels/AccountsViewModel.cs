@@ -29,13 +29,16 @@ public sealed partial class AccountsViewModel : ObservableObject
 
     private readonly PasscultureClient _passClient;
     private readonly IAccountTestRegistry _accounts;
+    private readonly IDialogService _dialogs;
 
-    public AccountsViewModel(IStorageService storage, IUiDispatcher ui, PasscultureClient passClient, IAccountTestRegistry accounts)
+    public AccountsViewModel(IStorageService storage, IUiDispatcher ui, PasscultureClient passClient,
+        IAccountTestRegistry accounts, IDialogService dialogs)
     {
         _storage = storage;
         _ui = ui;
         _passClient = passClient;
         _accounts = accounts;
+        _dialogs = dialogs;
         Refresh();
     }
 
@@ -108,13 +111,15 @@ public sealed partial class AccountsViewModel : ObservableObject
                 }
 
                 int sent = 0, alreadyKnown = 0;
-                foreach (var c in unique)
-                {
-                    if (_accounts.TryGet(c.Username, c.Password, out _)) { alreadyKnown++; continue; }
-                    // The registry reserves atomically before any backend call → no duplicate captcha.
-                    await AccountTester.TestOnceAsync(_passClient, _accounts, c);
-                    sent++;
-                }
+                await Parallel.ForEachAsync(unique,
+                    new ParallelOptions { MaxDegreeOfParallelism = 10 },
+                    async (c, token) =>
+                    {
+                        if (_accounts.TryGet(c.Username, c.Password, out _)) { Interlocked.Increment(ref alreadyKnown); return; }
+                        // The registry reserves atomically before any backend call → no duplicate captcha.
+                        await AccountTester.TestOnceAsync(_passClient, _accounts, c, token);
+                        Interlocked.Increment(ref sent);
+                    });
 
                 _ui.Post(() =>
                 {
@@ -127,6 +132,96 @@ public sealed partial class AccountsViewModel : ObservableObject
                 _ui.Post(() => StatusText = ex.Message);
             }
         });
+    }
+
+    /// <summary>Imports a mail:pass combolist (.txt) and sends every unique, not-yet-known account to the
+    /// checker (one captcha each). Reuses the same atomic registry + tester as the rest of the app, so
+    /// duplicates across the combolist, saved records and previous runs are never re-tested.</summary>
+    [RelayCommand]
+    private async Task ImportComboListAsync()
+    {
+        var path = _dialogs.PickFile("Combolist mail:pass (*.txt)|*.txt|Tous les fichiers (*.*)|*.*");
+        if (string.IsNullOrEmpty(path)) return;
+
+        StatusText = "Lecture de la combolist…";
+        var (unique, malformed) = await Task.Run(() => ParseCombo(path));
+
+        if (unique.Count == 0)
+        {
+            StatusText = $"Aucune ligne mail:pass valide trouvée ({malformed} ligne(s) ignorée(s)).";
+            return;
+        }
+
+        if (!_dialogs.Confirm(
+                $"Envoyer {unique.Count} compte(s) unique(s) au checker ?\nChaque test non déjà connu consomme un captcha.",
+                "Importer une combolist"))
+        {
+            StatusText = "Import annulé.";
+            return;
+        }
+
+        await Task.Run(async () =>
+        {
+            try
+            {
+                int sent = 0, alreadyKnown = 0, done = 0;
+                await Parallel.ForEachAsync(unique,
+                    new ParallelOptions { MaxDegreeOfParallelism = 10 },
+                    async (c, token) =>
+                    {
+                        if (_accounts.TryGet(c.Username, c.Password, out _)) Interlocked.Increment(ref alreadyKnown);
+                        else { await AccountTester.TestOnceAsync(_passClient, _accounts, c, token); Interlocked.Increment(ref sent); }
+
+                        int d = Interlocked.Increment(ref done);
+                        if (d % 5 == 0 || d == unique.Count)
+                        {
+                            int s = Volatile.Read(ref sent), k = Volatile.Read(ref alreadyKnown);
+                            _ui.Post(() =>
+                            {
+                                StatusText = $"Checker : {d}/{unique.Count} — {s} envoyé(s), {k} déjà connu(s)";
+                                Refresh();
+                            });
+                        }
+                    });
+
+                _ui.Post(() =>
+                {
+                    StatusText = $"Terminé : {unique.Count} compte(s) unique(s) — {sent} envoyé(s), " +
+                                 $"{alreadyKnown} déjà connu(s), {malformed} ligne(s) ignorée(s).";
+                    Refresh();
+                });
+            }
+            catch (Exception ex)
+            {
+                _ui.Post(() => StatusText = ex.Message);
+            }
+        });
+    }
+
+    /// <summary>Parses "mail:pass" lines (split on the first ':'), keeps only entries whose left side looks
+    /// like an email, and de-duplicates by normalized identity. Returns the unique list + count of skipped lines.</summary>
+    private static (List<CredentialEntry> unique, int malformed) ParseCombo(string path)
+    {
+        var creds = new List<CredentialEntry>();
+        int lineNo = 0, malformed = 0;
+        foreach (var raw in File.ReadLines(path))
+        {
+            lineNo++;
+            var line = raw.Trim();
+            if (line.Length == 0) continue;
+            var idx = line.IndexOf(':');
+            if (idx <= 0 || idx >= line.Length - 1) { malformed++; continue; }
+            var email = line[..idx].Trim();
+            var pass = line[(idx + 1)..].Trim();
+            if (email.Length == 0 || pass.Length == 0 || !email.Contains('@')) { malformed++; continue; }
+            creds.Add(new CredentialEntry(null, email, pass, lineNo, line));
+        }
+
+        var unique = creds
+            .GroupBy(c => AccountKey.Of(c.Username, c.Password))
+            .Select(g => g.First())
+            .ToList();
+        return (unique, malformed);
     }
 
     public void Refresh() => _ui.Post(() =>
