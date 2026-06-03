@@ -179,20 +179,12 @@
                             </Border>
                         </DockPanel>
                         <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,10" TextWrapping="Wrap"
-                                   Text="Route les requetes vers le backend Passculture via un proxy HTTP (ex. 2captcha residentiel). Identifiants stockes dans settings.json, pas dans le code."/>
-                        <CheckBox Content="Activer le proxy" IsChecked="{Binding ProxyEnabled}"/>
-                        <TextBlock Text="Adresse (ex. http://na.proxy.2captcha.com:2334)" Style="{StaticResource Caption}" Margin="0,14,0,6"/>
-                        <TextBox Text="{Binding ProxyAddress, UpdateSourceTrigger=PropertyChanged}"/>
-                        <WrapPanel Margin="0,12,0,0">
-                            <StackPanel Width="280" Margin="0,0,14,0">
-                                <TextBlock Text="Utilisateur" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
-                                <TextBox Text="{Binding ProxyUsername, UpdateSourceTrigger=PropertyChanged}"/>
-                            </StackPanel>
-                            <StackPanel Width="280">
-                                <TextBlock Text="Mot de passe" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
-                                <TextBox Text="{Binding ProxyPassword, UpdateSourceTrigger=PropertyChanged}"/>
-                            </StackPanel>
-                        </WrapPanel>
+                                   Text="Liste de proxies en rotation (round-robin, 1 par requete) pour repartir les requetes Passculture sur plusieurs IP. Fichier .txt, une URL par ligne : http://user:pass@host:port"/>
+                        <CheckBox Content="Activer les proxies" IsChecked="{Binding ProxyEnabled}"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                            <Button Content="Importer une liste (.txt)" Command="{Binding ImportProxiesCommand}"/>
+                            <TextBlock Text="{Binding ProxyStatus}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 

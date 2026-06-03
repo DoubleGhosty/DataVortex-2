@@ -27,13 +27,13 @@ public sealed class MeResult
 
 public sealed class PasscultureClient
 {
-    private readonly HttpClient _http;
+    private readonly ProxyPool _pool;
     private readonly TwoCaptchaService? _twoCaptcha;
     private readonly ILogger<PasscultureClient> _log;
 
-    public PasscultureClient(HttpClient http, TwoCaptchaService? twoCaptcha = null, ILogger<PasscultureClient>? log = null)
+    public PasscultureClient(ProxyPool pool, TwoCaptchaService? twoCaptcha = null, ILogger<PasscultureClient>? log = null)
     {
-        _http = http;
+        _pool = pool;
         _twoCaptcha = twoCaptcha;
         _log = log ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<PasscultureClient>.Instance;
     }
@@ -76,8 +76,9 @@ public sealed class PasscultureClient
                 }
                 catch { /* best-effort */ }
             }
+            var http = _pool.Next();
             _log.LogInformation("→ Passculture POST signin pour {Email}", identifier);
-            using var resp = await _http.PostAsync("native/v1/signin", content, ct).ConfigureAwait(false);
+            using var resp = await http.PostAsync("native/v1/signin", content, ct).ConfigureAwait(false);
             var s = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             _log.LogDebug("Signin response: {Response}", s);
             try
@@ -134,7 +135,8 @@ public sealed class PasscultureClient
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, "native/v1/me");
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-            using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+            var http = _pool.Next();
+            using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
             var s = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             try
             {

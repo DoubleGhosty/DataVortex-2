@@ -115,18 +115,11 @@ public partial class App : Application
         services.AddSingleton(sp =>
         {
             var cfg = sp.GetRequiredService<ISettingsService>().Current;
-            var handler = new System.Net.Http.HttpClientHandler();
-            if (cfg.ProxyEnabled && !string.IsNullOrWhiteSpace(cfg.ProxyAddress))
-            {
-                handler.Proxy = new System.Net.WebProxy(cfg.ProxyAddress)
-                {
-                    Credentials = new System.Net.NetworkCredential(cfg.ProxyUsername ?? "", cfg.ProxyPassword ?? "")
-                };
-                handler.UseProxy = true;
-            }
+            // Build one HttpClient per proxy from the imported list; rotate them per request (see ProxyPool).
+            var pool = new DataVortex.Core.Passculture.ProxyPool(
+                cfg.Proxies, new Uri("https://backend.passculture.app/"), cfg.ProxyEnabled);
             return new DataVortex.Core.Passculture.PasscultureClient(
-                new System.Net.Http.HttpClient(handler) { BaseAddress = new Uri("https://backend.passculture.app/") },
-                sp.GetService<DataVortex.Core.Passculture.TwoCaptchaService>());
+                pool, sp.GetService<DataVortex.Core.Passculture.TwoCaptchaService>());
         });
 
 

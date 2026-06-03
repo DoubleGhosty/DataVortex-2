@@ -62,17 +62,12 @@ public sealed class AppSettings
     public string TwoCaptchaApiKey { get; set; } = "e0650244d66d3b814d47e0646445fbac";
 
     // ---- Proxy (used for Passculture backend requests) ----
-    /// <summary>When true, calls to the Passculture backend are routed through <see cref="ProxyAddress"/>.</summary>
+    /// <summary>When true, Passculture backend requests are routed through the proxies in <see cref="Proxies"/>,
+    /// rotated round-robin per request. False (or an empty list) sends requests directly.</summary>
     public bool ProxyEnabled { get; set; }
 
-    /// <summary>Proxy URL, e.g. http://na.proxy.2captcha.com:2334. Kept in settings.json, not hard-coded.</summary>
-    public string ProxyAddress { get; set; } = "";
-
-    /// <summary>Proxy authentication username (optional).</summary>
-    public string ProxyUsername { get; set; } = "";
-
-    /// <summary>Proxy authentication password (optional).</summary>
-    public string ProxyPassword { get; set; } = "";
+    /// <summary>Proxy list — one full URL per line: "http://user:pass@host:port". Imported from a .txt file.</summary>
+    public List<string> Proxies { get; set; } = new();
 
     // ---- Account checker ----
     /// <summary>Global cap on concurrent Passculture sign-in checks — shared by the combolist import, the

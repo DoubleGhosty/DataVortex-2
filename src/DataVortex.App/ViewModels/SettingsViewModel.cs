@@ -1,6 +1,7 @@
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using DataVortex.App.Services;
 using DataVortex.App.Themes;
 using DataVortex.Core.Abstractions;
 using DataVortex.Core.Accounts;
@@ -25,6 +26,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly IBackfillService _backfill;
     private readonly ITelegramService _telegram;
     private readonly IUpdateService _update;
+    private readonly IDialogService _dialogs;
     private readonly ILogger<SettingsViewModel> _log;
 
     // ---- Pipeline (restart required) ----
@@ -59,9 +61,8 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     // ---- Proxy for Passculture (restart required) ----
     [ObservableProperty] private bool proxyEnabled;
-    [ObservableProperty] private string proxyAddress = "";
-    [ObservableProperty] private string proxyUsername = "";
-    [ObservableProperty] private string proxyPassword = "";
+    [ObservableProperty] private string proxyStatus = "";
+    private List<string>? _importedProxies;   // non-null only after an import → replaces the saved list on Save
 
     // ---- Account checker (applied immediately) ----
     [ObservableProperty] private string parallelAccountChecks = "";
@@ -75,13 +76,15 @@ public sealed partial class SettingsViewModel : ObservableObject
     private UpdateInfo? _pendingUpdate;
 
     public SettingsViewModel(ISettingsService settings, IPipelineCoordinator coordinator,
-        IBackfillService backfill, ITelegramService telegram, IUpdateService update, ILogger<SettingsViewModel> log)
+        IBackfillService backfill, ITelegramService telegram, IUpdateService update, IDialogService dialogs,
+        ILogger<SettingsViewModel> log)
     {
         _settings = settings;
         _coordinator = coordinator;
         _backfill = backfill;
         _telegram = telegram;
         _update = update;
+        _dialogs = dialogs;
         _log = log;
         CurrentVersionText = $"Version {_update.CurrentVersion}";
         LoadFromSettings();
@@ -117,9 +120,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         TwoCaptchaApiKey = s.TwoCaptchaApiKey ?? "";
 
         ProxyEnabled = s.ProxyEnabled;
-        ProxyAddress = s.ProxyAddress ?? "";
-        ProxyUsername = s.ProxyUsername ?? "";
-        ProxyPassword = s.ProxyPassword ?? "";
+        _importedProxies = null;
+        ProxyStatus = $"{s.Proxies.Count} proxy(s) enregistré(s).";
 
         ParallelAccountChecks = s.MaxParallelAccountChecks.ToString();
 
@@ -131,6 +133,29 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         LoadFromSettings();
         StatusText = "Réglages rechargés depuis le disque.";
+    }
+
+    /// <summary>Imports a proxy list (.txt), one "http://user:pass@host:port" per line. Held in memory and
+    /// persisted on Save; the rotating pool is rebuilt at the next launch (restart required).</summary>
+    [RelayCommand]
+    private void ImportProxies()
+    {
+        var path = _dialogs.PickFile("Liste de proxies (*.txt)|*.txt|Tous les fichiers (*.*)|*.*");
+        if (string.IsNullOrEmpty(path)) return;
+        try
+        {
+            var lines = System.IO.File.ReadLines(path)
+                .Select(l => l.Trim())
+                .Where(l => l.Length > 0 && l.Contains("://"))
+                .Distinct()
+                .ToList();
+            _importedProxies = lines;
+            ProxyStatus = $"{lines.Count} proxy(s) importé(s) — Enregistrer pour appliquer (redémarrage requis).";
+        }
+        catch (Exception ex)
+        {
+            ProxyStatus = "Échec de lecture : " + ex.Message;
+        }
     }
 
     [RelayCommand]
@@ -206,11 +231,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         s.Theme = newTheme;
         s.TwoCaptchaApiKey = (TwoCaptchaApiKey ?? "").Trim();
 
-        // Proxy (restart required — the HttpClient is built once at startup).
+        // Proxy (restart required — the rotating HttpClient pool is built once at startup).
         s.ProxyEnabled = ProxyEnabled;
-        s.ProxyAddress = (ProxyAddress ?? "").Trim();
-        s.ProxyUsername = (ProxyUsername ?? "").Trim();
-        s.ProxyPassword = (ProxyPassword ?? "").Trim();
+        if (_importedProxies is not null) s.Proxies = _importedProxies;
 
         // Account checker (applied immediately).
         s.MaxParallelAccountChecks = ParseInt(ParallelAccountChecks, 1, 10, s.MaxParallelAccountChecks);
