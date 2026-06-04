@@ -49,8 +49,10 @@ public static class PasswordExtractor
     private static string Clean(string s) =>
         s.Trim().Trim('"', '\'', '`', '*', '_', '~', '[', ']', '(', ')', '<', '>', '.', ',', ';', ':');
 
+    // Note: a value containing "://" is allowed — in log channels the password is often a t.me link
+    // written right after "Password:". The keyword requirement keeps stray links from being captured.
     private static bool Plausible(string s) =>
-        s.Length is >= 2 and <= 128 && !Stop.Contains(s) && !s.Contains("://");
+        s.Length is >= 2 and <= 128 && !Stop.Contains(s);
 
     private static bool Passwordish(string s) =>
         s.Any(char.IsDigit) || s.Any(c => !char.IsLetterOrDigit(c));

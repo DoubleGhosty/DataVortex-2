@@ -22,6 +22,13 @@ public class PasswordExtractorTests
     [InlineData("PASSWORD - StrongP@ss", "StrongP@ss")]
     [InlineData("just a normal caption with no secret", null)]
     [InlineData("🔐 pwd → My_Pass.2024", "My_Pass.2024")]
+    [InlineData("‼️ Password: https://t.me/harmonylogs", "https://t.me/harmonylogs")]
+    [InlineData("Password: t.me/harmonylogs", "t.me/harmonylogs")]
+    [InlineData("🔑 Password: @HARMONYLOGS", "@HARMONYLOGS")]
+    [InlineData("🔑 Password: @BRZCLOUD", "@BRZCLOUD")]
+    [InlineData("🔑 Password: t.me/IckisCloud", "t.me/IckisCloud")]
+    [InlineData("🔑 Password: QLogs_Offical", "QLogs_Offical")]
+    [InlineData("Buy private - @Omega_Cloud_Admin\n\n🔑 Password: @BRZCLOUD", "@BRZCLOUD")]
     public void Parses_passwords(string input, string? expected)
         => Assert.Equal(expected, PasswordExtractor.FromMessage(input));
 
