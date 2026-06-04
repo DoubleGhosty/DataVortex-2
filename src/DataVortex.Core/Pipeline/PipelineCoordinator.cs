@@ -24,6 +24,7 @@ public sealed class PipelineCoordinator : IPipelineCoordinator, IDisposable
     private readonly IDownloadDeduplicator _dedup;
     private readonly DataVortex.Core.Passculture.PasscultureClient? _passClient;
     private readonly IAccountTestRegistry _accounts;
+    private readonly IPendingDownloadStore _pending;
     private CancellationTokenSource? _cts;
 
     public bool IsRunning { get; private set; }
@@ -40,7 +41,7 @@ public sealed class PipelineCoordinator : IPipelineCoordinator, IDisposable
     public PipelineCoordinator(
         ITelegramService telegram, IStorageService storage, IMetricsService metrics,
         IArchiveExtractor extractor, ISettingsService settings, ILoggerFactory loggerFactory,
-        IDownloadDeduplicator dedup, IAccountTestRegistry accounts,
+        IDownloadDeduplicator dedup, IAccountTestRegistry accounts, IPendingDownloadStore pending,
         DataVortex.Core.Passculture.PasscultureClient? passClient)
     {
         _telegram = telegram;
@@ -49,6 +50,7 @@ public sealed class PipelineCoordinator : IPipelineCoordinator, IDisposable
         _metrics = metrics;
         _dedup = dedup;
         _accounts = accounts;
+        _pending = pending;
         _log = loggerFactory.CreateLogger<PipelineCoordinator>();
         _passClient = passClient;
 
@@ -79,6 +81,11 @@ public sealed class PipelineCoordinator : IPipelineCoordinator, IDisposable
         else if (job.Status is DownloadStatus.Failed or DownloadStatus.Canceled)
             _dedup.RemoveReservation(job.DocumentId, job.SizeBytes, job.FileName);
 
+        // Forget it from the resume store once downloaded or permanently failed
+        // (Canceled = shutdown of an in-flight job → keep it so it resumes next launch).
+        if (job.Status is DownloadStatus.Completed or DownloadStatus.Failed)
+            _pending.Remove(job.ChannelId, job.MessageId, job.DocumentId);
+
         DownloadJobChanged?.Invoke(job);
     }
 
@@ -93,6 +100,8 @@ public sealed class PipelineCoordinator : IPipelineCoordinator, IDisposable
         _telegram.FileDetected += OnFileDetected;
         IsRunning = true;
         _log.LogInformation("Pipeline coordinator started");
+
+        ResumePendingDownloads(_cts.Token);
 
         // Background catch-up: test credentials in existing metadata that were never tested. Routed through
         // the registry so an account is never sent to the backend twice (no wasted captchas).
@@ -153,10 +162,42 @@ public sealed class PipelineCoordinator : IPipelineCoordinator, IDisposable
 
     public void UpdateBandwidthLimit(long bytesPerSecond) => _bandwidth.BytesPerSecond = bytesPerSecond;
 
+    /// <summary>Re-queues archives detected but not finished before the last shutdown. Documents are re-fetched
+    /// (file_reference may have expired); a job whose message is gone is kept in the store and skipped. Dialogs
+    /// are loaded first so channels resolve.</summary>
+    private void ResumePendingDownloads(CancellationToken ct)
+    {
+        var pendings = _pending.Snapshot();
+        if (pendings.Count == 0) return;
+
+        _ = Task.Run(async () =>
+        {
+            try { await _telegram.EnsureDialogsLoadedAsync(ct).ConfigureAwait(false); } catch { }
+            _log.LogInformation("Resuming {Count} pending download(s) from the previous session", pendings.Count);
+            foreach (var p in pendings)
+            {
+                if (ct.IsCancellationRequested) break;
+                try
+                {
+                    var job = await _telegram.RebuildPendingAsync(p, ct).ConfigureAwait(false);
+                    if (job is null)
+                    {
+                        _log.LogWarning("Pending download {File} could not be re-fetched (kept for next try)", p.FileName);
+                        continue;
+                    }
+                    await _download.EnqueueAsync(job, ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) { break; }
+                catch (Exception ex) { _log.LogWarning(ex, "Failed to resume pending download {File}", p.FileName); }
+            }
+        }, ct);
+    }
+
     private async void OnFileDetected(DownloadJob job)
     {
         try
         {
+            _pending.Add(job); // remember it so the download queue survives a restart
             await _download.EnqueueAsync(job, _cts?.Token ?? CancellationToken.None).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { }

@@ -50,3 +50,17 @@ public sealed class DownloadJob : Observable
     /// <summary>Absolute path of the downloaded file once <see cref="Status"/> is Completed.</summary>
     public string? LocalPath { get; set; }
 }
+
+/// <summary>Serialisable snapshot of a detected-but-not-finished download, persisted so the download queue can
+/// be resumed after a restart. The Telegram <see cref="TL.Document"/> is NOT stored (its file_reference
+/// expires); it is re-fetched from channel+message on resume.</summary>
+public sealed record PendingDownload(
+    long ChannelId,
+    string ChannelTitle,
+    long MessageId,
+    string FileName,
+    long SizeBytes,
+    string? MimeType,
+    DateTime ReceivedUtc,
+    string? MessageText,
+    long DocumentId);

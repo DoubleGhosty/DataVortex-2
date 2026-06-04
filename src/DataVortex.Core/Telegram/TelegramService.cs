@@ -243,6 +243,28 @@ public sealed class TelegramService : ITelegramService, IDisposable
         }
     }
 
+    /// <summary>Rebuilds a persisted pending download: re-fetches a fresh Document (file_reference may have
+    /// expired) and returns a ready-to-enqueue job, or null if the message/document is gone.</summary>
+    public async Task<DownloadJob?> RebuildPendingAsync(PendingDownload pending, CancellationToken ct = default)
+    {
+        var doc = await RefreshDocumentAsync(ToJob(pending, null!)).ConfigureAwait(false);
+        return doc is null ? null : ToJob(pending, doc);
+    }
+
+    private static DownloadJob ToJob(PendingDownload p, Document doc) => new()
+    {
+        ChannelId = p.ChannelId,
+        ChannelTitle = p.ChannelTitle,
+        MessageId = p.MessageId,
+        FileName = p.FileName,
+        SizeBytes = p.SizeBytes,
+        MimeType = p.MimeType,
+        ReceivedUtc = p.ReceivedUtc,
+        MessageText = p.MessageText,
+        DocumentId = p.DocumentId,
+        Document = doc
+    };
+
     /// <summary>Re-fetches the message carrying the archive to obtain a Document with a fresh file_reference.</summary>
     private async Task<Document?> RefreshDocumentAsync(DownloadJob job)
     {

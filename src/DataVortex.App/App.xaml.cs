@@ -96,6 +96,7 @@ public partial class App : Application
         services.AddSingleton<IMetricsService, MetricsService>();
         services.AddSingleton<IArchiveExtractor, ArchiveExtractor>();
         services.AddSingleton<IDownloadDeduplicator, DownloadDeduplicator>();
+        services.AddSingleton<IPendingDownloadStore, PendingDownloadStore>();
         services.AddSingleton<IAccountTestRegistry, AccountTestRegistry>();
         services.AddSingleton<CleanupService>();
         services.AddSingleton<IUpdateService>(sp => new GitHubUpdateService(
