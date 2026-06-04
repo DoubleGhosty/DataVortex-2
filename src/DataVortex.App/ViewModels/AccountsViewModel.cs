@@ -46,6 +46,16 @@ public sealed partial class AccountsViewModel : ObservableObject
     private int _countRetry;
     public int CountRetry { get => _countRetry; set => SetProperty(ref _countRetry, value); }
 
+    // Category filters (toggled from the badges); changing one re-filters the grid.
+    private bool _showValid = true;
+    public bool ShowValid { get => _showValid; set { if (SetProperty(ref _showValid, value)) Refresh(); } }
+
+    private bool _showBan = true;
+    public bool ShowBan { get => _showBan; set { if (SetProperty(ref _showBan, value)) Refresh(); } }
+
+    private bool _showCustom = true;
+    public bool ShowCustom { get => _showCustom; set { if (SetProperty(ref _showCustom, value)) Refresh(); } }
+
     private readonly PasscultureClient _passClient;
     private readonly IAccountTestRegistry _accounts;
     private readonly IDialogService _dialogs;
@@ -71,6 +81,7 @@ public sealed partial class AccountsViewModel : ObservableObject
         // The registry is the single, already-deduplicated source of truth for accounts.
         Accounts.Clear();
         int valid = 0, ban = 0, custom = 0;
+        var rows = new List<CredentialEntry>();
         foreach (var e in _accounts.Snapshot())
         {
             var entry = new CredentialEntry(e.Url, e.Email, e.Password, 0, "",
@@ -86,10 +97,22 @@ public sealed partial class AccountsViewModel : ObservableObject
                 case "CUSTOM": custom++; break;
             }
 
-            // Hide credentials the backend rejected as invalid (HTTP 400).
-            if (entry.Category == "INVALIDE") continue;
-            Accounts.Add(entry);
+            if (entry.Category == "INVALIDE") continue; // 400 always hidden
+            rows.Add(entry);
         }
+
+        // Apply category filters, then sort by credit descending.
+        foreach (var entry in rows
+                     .Where(c => c.Category switch
+                     {
+                         "VALIDE" => ShowValid,
+                         "BAN" => ShowBan,
+                         "CUSTOM" => ShowCustom,
+                         _ => true
+                     })
+                     .OrderByDescending(c => c.Credit ?? -1m))
+            Accounts.Add(entry);
+
         AccountCount = Accounts.Count;
         CountValid = valid;
         CountBan = ban;

@@ -29,4 +29,7 @@ public sealed record CredentialEntry(
         400 => "INVALIDE",
         _ => ""
     };
+
+    /// <summary>Credit shown to the user: the backend value is in cents, so divide by 100 (29000 → 290).</summary>
+    public decimal? CreditDisplay => Credit is null ? null : Credit / 100m;
 }

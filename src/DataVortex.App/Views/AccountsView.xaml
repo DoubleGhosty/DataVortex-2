@@ -39,19 +39,14 @@
                 </DockPanel>
 
                 <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,12">
-                    <Border Style="{StaticResource StatusBadge}" Margin="0,0,8,0">
-                        <TextBlock FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Success}"
-                                   Text="{Binding CountValid, StringFormat='VALIDE : {0}'}"/>
-                    </Border>
-                    <Border Style="{StaticResource StatusBadge}" Margin="0,0,8,0">
-                        <TextBlock FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Error}"
-                                   Text="{Binding CountBan, StringFormat='BAN : {0}'}"/>
-                    </Border>
-                    <Border Style="{StaticResource StatusBadge}" Margin="0,0,8,0">
-                        <TextBlock FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Warning}"
-                                   Text="{Binding CountCustom, StringFormat='CUSTOM : {0}'}"/>
-                    </Border>
-                    <Border Style="{StaticResource StatusBadge}" Margin="0,0,8,0">
+                    <TextBlock Text="Filtrer :" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                    <CheckBox IsChecked="{Binding ShowValid}" Margin="0,0,16,0" FontWeight="SemiBold" Foreground="{DynamicResource Success}"
+                              Content="{Binding CountValid, StringFormat='VALIDE : {0}'}"/>
+                    <CheckBox IsChecked="{Binding ShowBan}" Margin="0,0,16,0" FontWeight="SemiBold" Foreground="{DynamicResource Error}"
+                              Content="{Binding CountBan, StringFormat='BAN : {0}'}"/>
+                    <CheckBox IsChecked="{Binding ShowCustom}" Margin="0,0,16,0" FontWeight="SemiBold" Foreground="{DynamicResource Warning}"
+                              Content="{Binding CountCustom, StringFormat='CUSTOM : {0}'}"/>
+                    <Border Style="{StaticResource StatusBadge}" Margin="8,0,0,0">
                         <TextBlock FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondary}"
                                    Text="{Binding CountRetry, StringFormat='RETRY : {0}'}"/>
                     </Border>
@@ -62,7 +57,7 @@
                         <DataGridTextColumn Header="Catégorie" Binding="{Binding Category}" Width="90"/>
                         <DataGridTextColumn Header="Username" Binding="{Binding Username}" Width="*"/>
                         <DataGridTextColumn Header="Password" Binding="{Binding Password}" Width="*"/>
-                        <DataGridTextColumn Header="Credit" Binding="{Binding Credit}" Width="110"/>
+                        <DataGridTextColumn Header="Credit (€)" Binding="{Binding CreditDisplay}" Width="110"/>
                         <DataGridTextColumn Header="BirthDate" Binding="{Binding BirthDate}" Width="120"/>
                         <DataGridTextColumn Header="Tested" Binding="{Binding Tested}" Width="80"/>
                         <DataGridTemplateColumn Header="AccessToken" Width="120">

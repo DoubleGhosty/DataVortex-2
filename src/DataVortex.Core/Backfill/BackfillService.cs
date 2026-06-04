@@ -56,6 +56,7 @@ public sealed class BackfillService : IBackfillService, IDisposable
     private long _totalScanned;
     private long _totalEnqueued;
     private volatile bool _enabled;
+    private int _rrIndex = -1; // round-robin cursor over watched channels
 
     public BackfillStatus Status { get; private set; } = new() { State = BackfillState.Disabled };
     public event Action<BackfillStatus>? StatusChanged;
@@ -196,15 +197,22 @@ public sealed class BackfillService : IBackfillService, IDisposable
         return false;
     }
 
+    /// <summary>Round-robin over watched channels (skipping completed ones), so the backfill scans the most
+    /// recent page of EVERY channel in rotation instead of exhausting the first channel before moving on.</summary>
     private (long Id, string Title)? NextChannelToScan()
     {
-        foreach (var w in _settings.Current.WatchedChannels)
+        var channels = _settings.Current.WatchedChannels;
+        if (channels.Count == 0) return null;
+
+        for (int i = 0; i < channels.Count; i++)
         {
+            _rrIndex = (_rrIndex + 1) % channels.Count;
+            var w = channels[_rrIndex];
             bool done;
             lock (_gate) done = _progress.TryGetValue(w.Id, out var p) && p.Completed;
             if (!done) return (w.Id, w.Title);
         }
-        return null;
+        return null; // every channel completed
     }
 
     private void Publish(BackfillState state, string channel)

@@ -51,6 +51,7 @@ public partial class App : Application
             _provider.GetRequiredService<ISettingsService>().Current.MaxParallelAccountChecks);
         DataVortex.Core.Accounts.AccountTester.SetLogger(
             _provider.GetRequiredService<ILoggerFactory>().CreateLogger("Checker"));
+        _provider.GetRequiredService<DataVortex.Core.Storage.CleanupService>().Start();
 
         var shell = _provider.GetRequiredService<ShellWindow>();
         MainWindow = shell;
@@ -96,6 +97,7 @@ public partial class App : Application
         services.AddSingleton<IArchiveExtractor, ArchiveExtractor>();
         services.AddSingleton<IDownloadDeduplicator, DownloadDeduplicator>();
         services.AddSingleton<IAccountTestRegistry, AccountTestRegistry>();
+        services.AddSingleton<CleanupService>();
         services.AddSingleton<IUpdateService>(sp => new GitHubUpdateService(
             new System.Net.Http.HttpClient(), sp.GetRequiredService<AppPaths>(),
             sp.GetRequiredService<ILogger<GitHubUpdateService>>()));
