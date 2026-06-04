@@ -17,6 +17,10 @@ public static class AccountTester
     private static int _maxParallel = 10;
     private static ILogger? _log;
 
+    /// <summary>Raised when a credential is abandoned after exhausting retries (non-definitive responses).
+    /// The UI uses it to count the RETRY category (these accounts are not persisted, so they stay retryable).</summary>
+    public static event Action? RetryAbandoned;
+
     /// <summary>Wires a logger so the checker emits live per-account traces (captcha request, sign-in,
     /// 429 retries, result). Set once at startup; logging is a no-op until then.</summary>
     public static void SetLogger(ILogger logger) => _log = logger;
@@ -68,6 +72,7 @@ public static class AccountTester
                 {
                     _log?.LogWarning("Check {Email}: captcha non résolu (essai {Attempt})", cred.Username, attempt + 1);
                     if (attempt < MaxCheckRetries) continue;
+                    RetryAbandoned?.Invoke();
                     registry.Release(cred.Username, cred.Password);
                     return cred;
                 }
@@ -99,7 +104,7 @@ public static class AccountTester
 
                     var result = new AccountTestResult(
                         success, signin.StatusCode, signin.AccessToken, signin.RefreshToken,
-                        credit, birth, signin.Raw, DateTime.UtcNow);
+                        credit, birth, signin.Raw, DateTime.UtcNow, signin.AccountState);
                     registry.Complete(cred.Username, cred.Password, result);
                     return Apply(cred, result);
                 }
@@ -114,6 +119,7 @@ public static class AccountTester
 
                 _log?.LogWarning("Check {Email}: abandonné après {Total} essai(s) (dernier HTTP {Code}) — réessayable plus tard",
                     cred.Username, MaxCheckRetries + 1, signin.StatusCode);
+                RetryAbandoned?.Invoke();
                 registry.Release(cred.Username, cred.Password);
                 return cred;
             }

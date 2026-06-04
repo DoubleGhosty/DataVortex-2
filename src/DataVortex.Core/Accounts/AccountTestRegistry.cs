@@ -24,7 +24,8 @@ public sealed record AccountTestResult(
     decimal? Credit = null,
     string? BirthDate = null,
     string? Message = null,
-    DateTime TestedUtc = default);
+    DateTime TestedUtc = default,
+    string? AccountState = null);
 
 /// <summary>A known account: its (display) identity plus the test outcome.</summary>
 public sealed class AccountEntry

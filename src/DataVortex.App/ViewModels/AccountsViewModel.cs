@@ -34,6 +34,18 @@ public sealed partial class AccountsViewModel : ObservableObject
         set => SetProperty(ref _captchaRequests, value);
     }
 
+    private int _countValid;
+    public int CountValid { get => _countValid; set => SetProperty(ref _countValid, value); }
+
+    private int _countBan;
+    public int CountBan { get => _countBan; set => SetProperty(ref _countBan, value); }
+
+    private int _countCustom;
+    public int CountCustom { get => _countCustom; set => SetProperty(ref _countCustom, value); }
+
+    private int _countRetry;
+    public int CountRetry { get => _countRetry; set => SetProperty(ref _countRetry, value); }
+
     private readonly PasscultureClient _passClient;
     private readonly IAccountTestRegistry _accounts;
     private readonly IDialogService _dialogs;
@@ -50,6 +62,7 @@ public sealed partial class AccountsViewModel : ObservableObject
         _twoCaptcha = twoCaptcha;
         CaptchaRequests = _twoCaptcha.RequestCount;
         _twoCaptcha.RequestCountChanged += n => _ui.Post(() => CaptchaRequests = n);
+        AccountTester.RetryAbandoned += () => _ui.Post(() => CountRetry++);
         Refresh();
     }
 
@@ -57,16 +70,30 @@ public sealed partial class AccountsViewModel : ObservableObject
     {
         // The registry is the single, already-deduplicated source of truth for accounts.
         Accounts.Clear();
+        int valid = 0, ban = 0, custom = 0;
         foreach (var e in _accounts.Snapshot())
         {
-            // Hide credentials the backend rejected as invalid (HTTP 400).
-            if (!e.Result.Success && e.Result.StatusCode == 400) continue;
-            Accounts.Add(new CredentialEntry(e.Url, e.Email, e.Password, 0, "",
+            var entry = new CredentialEntry(e.Url, e.Email, e.Password, 0, "",
                 Tested: true, TestSuccess: e.Result.Success, TestMessage: e.Result.Message,
                 TestedUtc: e.Result.TestedUtc, AccessToken: e.Result.AccessToken, RefreshToken: e.Result.RefreshToken,
-                Credit: e.Result.Credit, BirthDate: e.Result.BirthDate, StatusCode: e.Result.StatusCode));
+                Credit: e.Result.Credit, BirthDate: e.Result.BirthDate, StatusCode: e.Result.StatusCode,
+                AccountState: e.Result.AccountState);
+
+            switch (entry.Category)
+            {
+                case "VALIDE": valid++; break;
+                case "BAN": ban++; break;
+                case "CUSTOM": custom++; break;
+            }
+
+            // Hide credentials the backend rejected as invalid (HTTP 400).
+            if (entry.Category == "INVALIDE") continue;
+            Accounts.Add(entry);
         }
         AccountCount = Accounts.Count;
+        CountValid = valid;
+        CountBan = ban;
+        CountCustom = custom;
     }
 
     private string _captchaToken = "";
