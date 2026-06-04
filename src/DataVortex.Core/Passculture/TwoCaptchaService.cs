@@ -10,6 +10,13 @@ public sealed class TwoCaptchaService
     private readonly string _apiKey;
     private readonly HttpClient _http = new();
     private readonly ILogger<TwoCaptchaService> _log;
+    private int _requestCount;
+
+    /// <summary>Total captchas submitted to 2captcha this session.</summary>
+    public int RequestCount => Volatile.Read(ref _requestCount);
+
+    /// <summary>Raised with the new running total each time a captcha is submitted to 2captcha.</summary>
+    public event Action<int>? RequestCountChanged;
 
     public TwoCaptchaService(string apiKey, ILogger<TwoCaptchaService> log)
     {
@@ -43,7 +50,9 @@ public sealed class TwoCaptchaService
             {
                 var id = req.GetString();
                 if (string.IsNullOrWhiteSpace(id)) return null;
-                _log.LogInformation("2captcha: capté (id={Id}), attente de résolution…", id);
+                var n = Interlocked.Increment(ref _requestCount);
+                RequestCountChanged?.Invoke(n);
+                _log.LogInformation("2captcha: capté (id={Id}) — demande #{Count}, attente de résolution…", id, n);
                 // poll
                 for (int i = 0; i < maxAttempts; i++)
                 {

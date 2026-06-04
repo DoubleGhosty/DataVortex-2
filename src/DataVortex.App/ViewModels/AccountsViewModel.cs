@@ -27,18 +27,29 @@ public sealed partial class AccountsViewModel : ObservableObject
         set => SetProperty(ref _accountCount, value);
     }
 
+    private int _captchaRequests;
+    public int CaptchaRequests
+    {
+        get => _captchaRequests;
+        set => SetProperty(ref _captchaRequests, value);
+    }
+
     private readonly PasscultureClient _passClient;
     private readonly IAccountTestRegistry _accounts;
     private readonly IDialogService _dialogs;
+    private readonly TwoCaptchaService _twoCaptcha;
 
     public AccountsViewModel(IStorageService storage, IUiDispatcher ui, PasscultureClient passClient,
-        IAccountTestRegistry accounts, IDialogService dialogs)
+        IAccountTestRegistry accounts, IDialogService dialogs, TwoCaptchaService twoCaptcha)
     {
         _storage = storage;
         _ui = ui;
         _passClient = passClient;
         _accounts = accounts;
         _dialogs = dialogs;
+        _twoCaptcha = twoCaptcha;
+        CaptchaRequests = _twoCaptcha.RequestCount;
+        _twoCaptcha.RequestCountChanged += n => _ui.Post(() => CaptchaRequests = n);
         Refresh();
     }
 

@@ -26,6 +26,12 @@
                         <TextBlock Text="{Binding AccountCount, StringFormat='{}{0} account(s)'}" FontSize="13" FontWeight="SemiBold"
                                    Foreground="{DynamicResource Accent}"/>
                     </Border>
+                    <TextBlock Text="Captchas 2captcha :" Style="{StaticResource Caption}" DockPanel.Dock="Left"
+                               VerticalAlignment="Center" Margin="18,0,0,0"/>
+                    <Border Style="{StaticResource StatusBadge}" DockPanel.Dock="Left" Margin="10,0,0,0">
+                        <TextBlock Text="{Binding CaptchaRequests}" FontSize="13" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource Warning}"/>
+                    </Border>
                     <Button Content="Importer combolist" Command="{Binding ImportComboListCommand}" DockPanel.Dock="Right"/>
                     <Button Content="Tester les comptes" Style="{StaticResource Ghost}" Command="{Binding TestAccountsCommand}"
                             DockPanel.Dock="Right" Margin="0,0,8,0"/>

