@@ -129,6 +129,25 @@ public sealed class PasscultureClient
         catch { return null; }
     }
 
+    /// <summary>Mints a fresh access token from a (long-lived) refresh token — <b>no captcha required</b>.
+    /// Used to re-read <c>/me</c> for accounts whose credit was never captured. Returns null on failure
+    /// (e.g. the refresh token has expired, ~31 days).</summary>
+    public async Task<string?> RefreshAccessTokenAsync(string refreshToken, CancellationToken ct = default)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, "native/v1/refresh_access_token");
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", refreshToken);
+            var http = _pool.Next();
+            using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
+            var s = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode) return null;
+            using var doc = JsonDocument.Parse(s);
+            return doc.RootElement.TryGetProperty("accessToken", out var a) ? a.GetString() : null;
+        }
+        catch { return null; }
+    }
+
     public async Task<MeResult> GetMeAsync(string accessToken, CancellationToken ct = default)
     {
         try

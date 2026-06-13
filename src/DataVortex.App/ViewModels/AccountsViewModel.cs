@@ -221,6 +221,52 @@ public sealed partial class AccountsViewModel : ObservableObject
         });
     }
 
+    /// <summary>Re-fetches the credit (and birth date) of accounts that came back VALIDE/CUSTOM but never got
+    /// a credit, by reusing their stored refresh token — so it costs <b>zero captcha</b> and no sign-in.</summary>
+    [RelayCommand]
+    private async Task RefreshCreditsAsync()
+    {
+        var candidates = await Task.Run(() => _storage.LoadAccountsNeedingCredit());
+        if (candidates.Count == 0)
+        {
+            StatusText = "Aucun compte à rafraîchir (crédit déjà connu ou pas de refresh token).";
+            return;
+        }
+
+        StatusText = $"Rafraîchissement de {candidates.Count} compte(s)…";
+        await Task.Run(async () =>
+        {
+            try
+            {
+                int got = 0, done = 0;
+                await Parallel.ForEachAsync(candidates,
+                    new ParallelOptions { MaxDegreeOfParallelism = 10 },
+                    async (a, token) =>
+                    {
+                        var (_, gotCredit) = await AccountTester.RefreshCreditAsync(_passClient, _accounts, a, token);
+                        if (gotCredit) Interlocked.Increment(ref got);
+
+                        int d = Interlocked.Increment(ref done);
+                        if (d % 10 == 0 || d == candidates.Count)
+                        {
+                            int g = Volatile.Read(ref got);
+                            _ui.Post(() => StatusText = $"Rafraîchissement : {d}/{candidates.Count} — {g} crédit(s) récupéré(s)");
+                        }
+                    });
+
+                _ui.Post(() =>
+                {
+                    StatusText = $"Terminé : {got} crédit(s) récupéré(s) sur {candidates.Count} compte(s) rafraîchi(s).";
+                    Refresh();
+                });
+            }
+            catch (Exception ex)
+            {
+                _ui.Post(() => StatusText = ex.Message);
+            }
+        });
+    }
+
     /// <summary>Imports a mail:pass combolist (.txt) and sends every unique, not-yet-known account to the
     /// checker (one captcha each). Reuses the same atomic registry + tester as the rest of the app, so
     /// duplicates across the combolist, saved records and previous runs are never re-tested.</summary>

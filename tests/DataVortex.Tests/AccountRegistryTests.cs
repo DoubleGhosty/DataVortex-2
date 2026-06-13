@@ -60,6 +60,25 @@ public sealed class AccountRegistryTests : IDisposable
     }
 
     [Fact]
+    public void LoadAccountsNeedingCredit_returns_only_creditless_successes_with_a_refresh_token()
+    {
+        var (_, storage) = New();
+        var now = DateTime.UtcNow;
+        // candidate: success, no credit, has a refresh token
+        storage.UpsertAccount(new AccountRecord("k1", "need@x", "p", null, true, 200, "ACTIVE", "VALIDE", null, null, null, now, "acc1", "ref1"));
+        // not: credit already known
+        storage.UpsertAccount(new AccountRecord("k2", "has@x", "p", null, true, 200, "ACTIVE", "VALIDE", 50m, null, null, now, "acc2", "ref2"));
+        // not: no refresh token to reuse
+        storage.UpsertAccount(new AccountRecord("k3", "notok@x", "p", null, true, 200, "ACTIVE", "VALIDE", null, null, null, now, "acc3", null));
+        // not: a 400 (wrong password) is not a success
+        storage.UpsertAccount(new AccountRecord("k4", "bad@x", "p", null, false, 400, null, "INVALIDE", null, null, null, now, null, null));
+
+        var candidates = storage.LoadAccountsNeedingCredit();
+        Assert.Single(candidates);
+        Assert.Equal("need@x", candidates[0].Email);
+    }
+
+    [Fact]
     public void Legacy_account_tests_json_is_imported_then_renamed()
     {
         var paths = new AppPaths(_dir).EnsureCreated();

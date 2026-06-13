@@ -55,4 +55,7 @@ public interface IStorageService
     int CountAccounts(string? text = null, IReadOnlyCollection<string>? categories = null);
     /// <summary>Account totals grouped by category (for the live counters).</summary>
     IReadOnlyList<AccountCategoryCount> GetAccountCategoryCounts();
+    /// <summary>Successful accounts whose credit was never captured but that still hold a refresh token —
+    /// the credit can be re-fetched without a captcha.</summary>
+    IReadOnlyList<AccountRecord> LoadAccountsNeedingCredit();
 }

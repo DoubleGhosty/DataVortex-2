@@ -34,6 +34,8 @@
                                    Foreground="{DynamicResource Warning}"/>
                     </Border>
                     <Button Content="Importer combolist" Command="{Binding ImportComboListCommand}" DockPanel.Dock="Right"/>
+                    <Button Content="Rafraîchir crédits" Style="{StaticResource Ghost}" Command="{Binding RefreshCreditsCommand}"
+                            DockPanel.Dock="Right" Margin="0,0,8,0"/>
                     <Button Content="Tester les comptes" Style="{StaticResource Ghost}" Command="{Binding TestAccountsCommand}"
                             DockPanel.Dock="Right" Margin="0,0,8,0"/>
                 </DockPanel>

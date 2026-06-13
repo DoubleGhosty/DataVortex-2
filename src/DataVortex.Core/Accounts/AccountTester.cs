@@ -1,3 +1,4 @@
+using DataVortex.Core.Abstractions;
 using DataVortex.Core.Models;
 using DataVortex.Core.Passculture;
 using Microsoft.Extensions.Logging;
@@ -133,6 +134,31 @@ public static class AccountTester
         {
             gate.Release();
         }
+    }
+
+    /// <summary>Re-fetches credit + birth date for an already-tested account by reusing its stored tokens —
+    /// no captcha, no sign-in. Mints a fresh access token from the refresh token, then reads <c>/me</c>, and
+    /// persists the updated outcome. Returns whether the account was updated and whether a credit was obtained.</summary>
+    public static async Task<(bool updated, bool gotCredit)> RefreshCreditAsync(
+        PasscultureClient passClient, IAccountTestRegistry registry, AccountRecord account, CancellationToken ct = default)
+    {
+        // The stored access token is short-lived (~15 min), so refresh it from the long-lived refresh token first.
+        var access = !string.IsNullOrEmpty(account.RefreshToken)
+            ? await passClient.RefreshAccessTokenAsync(account.RefreshToken!, ct).ConfigureAwait(false) ?? account.AccessToken
+            : account.AccessToken;
+        if (string.IsNullOrEmpty(access)) return (false, false);
+
+        MeResult me;
+        try { me = await passClient.GetMeAsync(access!, ct).ConfigureAwait(false); }
+        catch { return (false, false); }
+        if (!me.Success) return (false, false); // transient failure → leave it for a later refresh
+
+        var result = new AccountTestResult(
+            account.Success, account.StatusCode, access, account.RefreshToken,
+            me.DomainsCreditRemaining, me.BirthDate, account.Message, DateTime.UtcNow, account.AccountState);
+        registry.Complete(account.Email, account.Password, result);
+        _log?.LogInformation("Refresh {Email}: crédit={Credit}", account.Email, me.DomainsCreditRemaining);
+        return (true, me.DomainsCreditRemaining is not null);
     }
 
     /// <summary>Folds a registry outcome back into a <see cref="CredentialEntry"/> (for the per-file record).</summary>
