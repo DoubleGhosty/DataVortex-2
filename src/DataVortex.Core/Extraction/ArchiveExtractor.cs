@@ -30,8 +30,12 @@ public sealed class ArchiveExtractor : IArchiveExtractor
         _log = log;
     }
 
+    /// <summary>Routes one matching *.txt entry either to disk (write mode) or to the in-memory callback.</summary>
+    private delegate Task EntryHandler(string entryName, Func<Stream> openStream, CancellationToken ct);
+
     public async Task<ExtractionResult> ExtractTextFilesAsync(string filePath, string destinationDir,
-        string? messageText = null, Action? onFileExtracted = null, CancellationToken ct = default)
+        string? messageText = null, Action? onFileExtracted = null,
+        Func<string, Stream, CancellationToken, Task>? onTextEntry = null, CancellationToken ct = default)
     {
         var extracted = new List<string>();
         var errors = new List<string>();
@@ -44,7 +48,8 @@ public sealed class ArchiveExtractor : IArchiveExtractor
 
         try
         {
-            Directory.CreateDirectory(destinationDir);
+            // In-memory mode (onTextEntry set) writes nothing, so it must not create a per-message folder.
+            if (onTextEntry is null) Directory.CreateDirectory(destinationDir);
 
             if (kind is ArchiveKind.Zip or ArchiveKind.Rar or ArchiveKind.SevenZip)
             {
@@ -64,18 +69,18 @@ public sealed class ArchiveExtractor : IArchiveExtractor
             switch (kind)
             {
                 case ArchiveKind.PlainText:
-                    await ProcessTxtAsync(() => File.OpenRead(filePath), name, destinationDir, matcher, extracted, errors, onFileExtracted, ct).ConfigureAwait(false);
+                    await Handle(name, () => File.OpenRead(filePath), ct).ConfigureAwait(false);
                     break;
 
                 case ArchiveKind.Zip when !isEncrypted:
-                    await ExtractZipAsync(filePath, destinationDir, matcher, extracted, errors, onFileExtracted, ct).ConfigureAwait(false);
+                    await ExtractZipAsync(filePath, Handle, ct).ConfigureAwait(false);
                     break;
 
                 case ArchiveKind.Zip:        // encrypted ZIP -> SharpCompress (with the password)
                 case ArchiveKind.Rar:
                 case ArchiveKind.SevenZip:
                     if (isEncrypted && password is null) break; // cannot extract without the password
-                    await ExtractWithSharpCompressAsync(filePath, destinationDir, matcher, password, extracted, errors, onFileExtracted, ct).ConfigureAwait(false);
+                    await ExtractWithSharpCompressAsync(filePath, password, Handle, ct).ConfigureAwait(false);
                     break;
             }
 
@@ -95,6 +100,36 @@ public sealed class ArchiveExtractor : IArchiveExtractor
         }
 
         return new ExtractionResult(kind, extracted, errors, isEncrypted, password is not null);
+
+        // Local handler: matches the filename, then either streams the entry to the in-memory callback
+        // (onTextEntry) or writes it to disk. Path-traversal is defeated by flattening to the bare filename.
+        async Task Handle(string entryName, Func<Stream> openStream, CancellationToken token)
+        {
+            var fileName = Path.GetFileName(entryName);
+            if (string.IsNullOrWhiteSpace(fileName)) fileName = "file.txt";
+            if (matcher.Enabled && !matcher.MatchesText(fileName)) return;
+
+            try
+            {
+                if (onTextEntry is not null)
+                {
+                    await using var src = openStream();
+                    await onTextEntry(fileName, src, token).ConfigureAwait(false);
+                    extracted.Add(fileName); // in-memory: keep the name so counts/Completed-vs-Ignored still work
+                }
+                else
+                {
+                    var dest = UniquePath(destinationDir, fileName);
+                    await using (var src = openStream())
+                    await using (var fs = new FileStream(dest, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true))
+                        await src.CopyToAsync(fs, token).ConfigureAwait(false);
+                    extracted.Add(dest);
+                }
+                onFileExtracted?.Invoke();
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { errors.Add($"{fileName}: {ex.Message}"); }
+        }
     }
 
     /// <summary>True if any entry is encrypted, or if the archive can't even be listed (encrypted headers).</summary>
@@ -113,8 +148,7 @@ public sealed class ArchiveExtractor : IArchiveExtractor
         }
     }
 
-    private static async Task ExtractZipAsync(string path, string destDir, KeywordMatcher matcher,
-        List<string> extracted, List<string> errors, Action? onFileExtracted, CancellationToken ct)
+    private static async Task ExtractZipAsync(string path, EntryHandler handle, CancellationToken ct)
     {
         using var zip = ZipFile.OpenRead(path);
         foreach (var entry in zip.Entries)
@@ -122,12 +156,11 @@ public sealed class ArchiveExtractor : IArchiveExtractor
             ct.ThrowIfCancellationRequested();
             if (string.IsNullOrEmpty(entry.Name)) continue; // directory entry
             if (!IsTxt(entry.Name)) continue;
-            await ProcessTxtAsync(entry.Open, entry.Name, destDir, matcher, extracted, errors, onFileExtracted, ct).ConfigureAwait(false);
+            await handle(entry.Name, entry.Open, ct).ConfigureAwait(false);
         }
     }
 
-    private static async Task ExtractWithSharpCompressAsync(string path, string destDir, KeywordMatcher matcher,
-        string? password, List<string> extracted, List<string> errors, Action? onFileExtracted, CancellationToken ct)
+    private static async Task ExtractWithSharpCompressAsync(string path, string? password, EntryHandler handle, CancellationToken ct)
     {
         var options = string.IsNullOrEmpty(password) ? null : new ReaderOptions { Password = password };
         using var archive = ArchiveFactory.OpenArchive(path, options);
@@ -136,7 +169,7 @@ public sealed class ArchiveExtractor : IArchiveExtractor
         // re-decompress from the start for every entry (O(n²)). A forward-only reader is O(n).
         if (archive.IsSolid)
         {
-            ExtractSolid(archive, destDir, matcher, extracted, errors, onFileExtracted, ct);
+            await ExtractSolidAsync(archive, handle, ct).ConfigureAwait(false);
             return;
         }
 
@@ -146,12 +179,11 @@ public sealed class ArchiveExtractor : IArchiveExtractor
             if (entry.IsDirectory) continue;
             var name = Path.GetFileName((entry.Key ?? string.Empty).Replace('\\', '/'));
             if (!IsTxt(name)) continue;
-            await ProcessTxtAsync(entry.OpenEntryStream, name, destDir, matcher, extracted, errors, onFileExtracted, ct).ConfigureAwait(false);
+            await handle(name, entry.OpenEntryStream, ct).ConfigureAwait(false);
         }
     }
 
-    private static void ExtractSolid(IArchive archive, string destDir, KeywordMatcher matcher,
-        List<string> extracted, List<string> errors, Action? onFileExtracted, CancellationToken ct)
+    private static async Task ExtractSolidAsync(IArchive archive, EntryHandler handle, CancellationToken ct)
     {
         using var reader = archive.ExtractAllEntries();
         while (reader.MoveToNextEntry())
@@ -161,50 +193,9 @@ public sealed class ArchiveExtractor : IArchiveExtractor
             if (entry.IsDirectory) continue;
             var name = Path.GetFileName((entry.Key ?? string.Empty).Replace('\\', '/'));
             if (!IsTxt(name)) continue;
-            if (matcher.Enabled && !matcher.MatchesText(name)) continue;
-            try
-            {
-                var dest = UniquePath(destDir, name);
-                using (var fs = new FileStream(dest, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16))
-                    reader.WriteEntryTo(fs);
-                extracted.Add(dest);
-                onFileExtracted?.Invoke();
-            }
-            catch (Exception ex)
-            {
-                errors.Add($"{name}: {ex.Message}");
-            }
-        }
-    }
-
-    /// <summary>Keeps the entry only if its filename matches the keyword filter; non-matching entries are
-    /// skipped without being opened. Path-traversal is defeated by flattening to the bare filename.</summary>
-    private static async Task ProcessTxtAsync(Func<Stream> openStream, string entryName, string destDir,
-        KeywordMatcher matcher, List<string> extracted, List<string> errors, Action? onFileExtracted, CancellationToken ct)
-    {
-        var fileName = Path.GetFileName(entryName);
-        if (string.IsNullOrWhiteSpace(fileName)) fileName = "file.txt";
-
-        if (matcher.Enabled && !matcher.MatchesText(fileName)) return;
-
-        try
-        {
-            var dest = UniquePath(destDir, fileName);
-            await using (var src = openStream())
-            await using (var fs = new FileStream(dest, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true))
-            {
-                await src.CopyToAsync(fs, ct).ConfigureAwait(false);
-            }
-            extracted.Add(dest);
-            onFileExtracted?.Invoke();
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            errors.Add($"{fileName}: {ex.Message}");
+            // The forward-only reader yields the current entry's stream once; non-matching entries are skipped
+            // inside the handler without opening it, and MoveToNextEntry advances past them.
+            await handle(name, reader.OpenEntryStream, ct).ConfigureAwait(false);
         }
     }
 

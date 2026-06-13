@@ -46,15 +46,52 @@ public sealed partial class AccountsViewModel : ObservableObject
     private int _countRetry;
     public int CountRetry { get => _countRetry; set => SetProperty(ref _countRetry, value); }
 
-    // Category filters (toggled from the badges); changing one re-filters the grid.
+    // Category filters (toggled from the badges); changing one re-filters the grid from page 1.
     private bool _showValid = true;
-    public bool ShowValid { get => _showValid; set { if (SetProperty(ref _showValid, value)) Refresh(); } }
+    public bool ShowValid { get => _showValid; set { if (SetProperty(ref _showValid, value)) ResetAndRefresh(); } }
 
     private bool _showBan = true;
-    public bool ShowBan { get => _showBan; set { if (SetProperty(ref _showBan, value)) Refresh(); } }
+    public bool ShowBan { get => _showBan; set { if (SetProperty(ref _showBan, value)) ResetAndRefresh(); } }
 
     private bool _showCustom = true;
-    public bool ShowCustom { get => _showCustom; set { if (SetProperty(ref _showCustom, value)) Refresh(); } }
+    public bool ShowCustom { get => _showCustom; set { if (SetProperty(ref _showCustom, value)) ResetAndRefresh(); } }
+
+    // ---- Search + pagination (indexed SQL, so the grid never loads the whole store) ----
+    private const int PageSize = 200;
+
+    private string _searchText = "";
+    public string SearchText { get => _searchText; set { if (SetProperty(ref _searchText, value)) ResetAndRefresh(); } }
+
+    private int _page;
+    public int Page { get => _page; set { if (SetProperty(ref _page, value)) { OnPropertyChanged(nameof(PageInfo)); OnPropertyChanged(nameof(CanPrev)); OnPropertyChanged(nameof(CanNext)); } } }
+
+    private int _totalResults;
+    public int TotalResults { get => _totalResults; set { if (SetProperty(ref _totalResults, value)) { OnPropertyChanged(nameof(PageInfo)); OnPropertyChanged(nameof(CanPrev)); OnPropertyChanged(nameof(CanNext)); } } }
+
+    public string PageInfo => TotalResults == 0
+        ? "0 compte"
+        : $"Page {Page + 1} / {Math.Max(1, (TotalResults + PageSize - 1) / PageSize)}  ·  {TotalResults} affichés";
+    public bool CanPrev => Page > 0;
+    public bool CanNext => (Page + 1) * PageSize < TotalResults;
+
+    [RelayCommand]
+    private void NextPage() { if (CanNext) { Page++; Refresh(); } }
+
+    [RelayCommand]
+    private void PrevPage() { if (CanPrev) { Page--; Refresh(); } }
+
+    /// <summary>The categories to show: always "other"/retry, plus the toggled VALIDE/BAN/CUSTOM. INVALIDE
+    /// (HTTP 400) is never included, so it stays hidden as before.</summary>
+    private List<string> VisibleCategories()
+    {
+        var cats = new List<string> { "" };
+        if (ShowValid) cats.Add("VALIDE");
+        if (ShowBan) cats.Add("BAN");
+        if (ShowCustom) cats.Add("CUSTOM");
+        return cats;
+    }
+
+    private void ResetAndRefresh() { Page = 0; Refresh(); }
 
     private readonly PasscultureClient _passClient;
     private readonly IAccountTestRegistry _accounts;
@@ -76,47 +113,36 @@ public sealed partial class AccountsViewModel : ObservableObject
         Refresh();
     }
 
-    private void PopulateFromRegistry()
+    private static CredentialEntry ToCredential(AccountRecord a) => new(
+        a.Url, a.Email, a.Password, 0, "",
+        Tested: true, TestSuccess: a.Success, TestMessage: a.Message,
+        TestedUtc: a.TestedUtc, AccessToken: a.AccessToken, RefreshToken: a.RefreshToken,
+        Credit: a.Credit, BirthDate: a.BirthDate, StatusCode: a.StatusCode, AccountState: a.AccountState);
+
+    /// <summary>Loads only the current page from indexed SQL (sorted by credit), plus the live category
+    /// counters — never the whole store, so the grid stays responsive however large the registry grows.</summary>
+    private async Task LoadPageAsync()
     {
-        // The registry is the single, already-deduplicated source of truth for accounts.
-        Accounts.Clear();
-        int valid = 0, ban = 0, custom = 0;
-        var rows = new List<CredentialEntry>();
-        foreach (var e in _accounts.Snapshot())
+        var text = string.IsNullOrWhiteSpace(SearchText) ? null : SearchText.Trim();
+        var cats = VisibleCategories();
+        var offset = Page * PageSize;
+
+        var (total, rows, counts) = await Task.Run(() => (
+            _storage.CountAccounts(text, cats),
+            _storage.SearchAccounts(text, cats, PageSize, offset),
+            _storage.GetAccountCategoryCounts())).ConfigureAwait(false);
+
+        _ui.Post(() =>
         {
-            var entry = new CredentialEntry(e.Url, e.Email, e.Password, 0, "",
-                Tested: true, TestSuccess: e.Result.Success, TestMessage: e.Result.Message,
-                TestedUtc: e.Result.TestedUtc, AccessToken: e.Result.AccessToken, RefreshToken: e.Result.RefreshToken,
-                Credit: e.Result.Credit, BirthDate: e.Result.BirthDate, StatusCode: e.Result.StatusCode,
-                AccountState: e.Result.AccountState);
+            TotalResults = total;
+            AccountCount = total;
+            Accounts.Clear();
+            foreach (var a in rows) Accounts.Add(ToCredential(a));
 
-            switch (entry.Category)
-            {
-                case "VALIDE": valid++; break;
-                case "BAN": ban++; break;
-                case "CUSTOM": custom++; break;
-            }
-
-            if (entry.Category == "INVALIDE") continue; // 400 always hidden
-            rows.Add(entry);
-        }
-
-        // Apply category filters, then sort by credit descending.
-        foreach (var entry in rows
-                     .Where(c => c.Category switch
-                     {
-                         "VALIDE" => ShowValid,
-                         "BAN" => ShowBan,
-                         "CUSTOM" => ShowCustom,
-                         _ => true
-                     })
-                     .OrderByDescending(c => c.Credit ?? -1m))
-            Accounts.Add(entry);
-
-        AccountCount = Accounts.Count;
-        CountValid = valid;
-        CountBan = ban;
-        CountCustom = custom;
+            CountValid = counts.FirstOrDefault(c => c.Category == "VALIDE")?.Count ?? 0;
+            CountBan = counts.FirstOrDefault(c => c.Category == "BAN")?.Count ?? 0;
+            CountCustom = counts.FirstOrDefault(c => c.Category == "CUSTOM")?.Count ?? 0;
+        });
     }
 
     private string _captchaToken = "";
@@ -285,9 +311,11 @@ public sealed partial class AccountsViewModel : ObservableObject
         return (unique, malformed);
     }
 
-    public void Refresh() => _ui.Post(() =>
+    public void Refresh() => _ = RefreshAsync();
+
+    private async Task RefreshAsync()
     {
-        try { PopulateFromRegistry(); }
-        catch { AccountCount = 0; }
-    });
+        try { await LoadPageAsync().ConfigureAwait(false); }
+        catch { _ui.Post(() => AccountCount = 0); }
+    }
 }

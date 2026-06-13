@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.RegularExpressions;
 using DataVortex.Core.Models;
 
@@ -11,16 +12,34 @@ public static class CredentialScanner
     private static readonly Regex PasswordRegex = new(@"^(?:\s*(?:Password|Pass|Mot de passe)\s*[:\-\t]?\s*)(.+)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex UrlRegex = new(@"https?://[^\s]+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    /// <summary>Scans a text file on disk (used when extracted *.txt are persisted).</summary>
     public static IReadOnlyList<CredentialEntry> ScanFile(string path)
     {
+        if (!File.Exists(path)) return Array.Empty<CredentialEntry>();
+        try { return Scan(File.ReadAllLines(path)); }
+        catch { return Array.Empty<CredentialEntry>(); }
+    }
+
+    /// <summary>Scans a text stream without ever touching disk — the in-memory extraction path. The stream
+    /// is read fully; the caller owns its lifetime.</summary>
+    public static IReadOnlyList<CredentialEntry> ScanStream(Stream stream)
+    {
+        var lines = new List<string>();
+        try
+        {
+            using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1 << 16, leaveOpen: true);
+            string? line;
+            while ((line = reader.ReadLine()) is not null) lines.Add(line);
+        }
+        catch { return Array.Empty<CredentialEntry>(); }
+        return Scan(lines);
+    }
+
+    private static IReadOnlyList<CredentialEntry> Scan(IReadOnlyList<string> lines)
+    {
         var list = new List<CredentialEntry>();
-        if (!File.Exists(path)) return list;
 
-        string[] lines;
-        try { lines = File.ReadAllLines(path); }
-        catch { return list; }
-
-        for (int i = 0; i < lines.Length; i++)
+        for (int i = 0; i < lines.Count; i++)
         {
             var line = lines[i];
             if (line == null) continue;
@@ -34,7 +53,7 @@ public static class CredentialScanner
             string? username = null;
             string? password = null;
 
-            for (int j = i + 1; j < Math.Min(lines.Length, i + 11); j++)
+            for (int j = i + 1; j < Math.Min(lines.Count, i + 11); j++)
             {
                 var l = lines[j];
                 if (l == null) continue;
@@ -59,7 +78,7 @@ public static class CredentialScanner
             if (username != null || password != null)
             {
                 // Use the first line after anchor that has content as context
-                var contextLine = (i + 1) < lines.Length ? lines[i + 1] ?? string.Empty : string.Empty;
+                var contextLine = (i + 1) < lines.Count ? lines[i + 1] ?? string.Empty : string.Empty;
                 list.Add(new CredentialEntry(url, username, password, i + 1, contextLine));
             }
         }

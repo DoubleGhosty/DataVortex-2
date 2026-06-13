@@ -29,6 +29,8 @@ public class PasswordExtractorTests
     [InlineData("🔑 Password: t.me/IckisCloud", "t.me/IckisCloud")]
     [InlineData("🔑 Password: QLogs_Offical", "QLogs_Offical")]
     [InlineData("Buy private - @Omega_Cloud_Admin\n\n🔑 Password: @BRZCLOUD", "@BRZCLOUD")]
+    [InlineData("🔑 Password: cacadu92382!!", "cacadu92382!!")]
+    [InlineData("Password: P@ssw0rd!#$%", "P@ssw0rd!#$%")]
     public void Parses_passwords(string input, string? expected)
         => Assert.Equal(expected, PasswordExtractor.FromMessage(input));
 

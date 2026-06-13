@@ -24,7 +24,7 @@
                                 <DataGridTextColumn Header="File" Binding="{Binding FileName}" Width="*"/>
                                 <DataGridTextColumn Header="Channel" Binding="{Binding ChannelTitle}" Width="140"/>
                                 <DataGridTextColumn Header="Size" Binding="{Binding SizeBytes, Converter={StaticResource Bytes}}" Width="90"/>
-                                <DataGridTemplateColumn Header="Status" Width="110">
+                                <DataGridTemplateColumn Header="Status" Width="110" SortMemberPath="Status">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <Border Style="{StaticResource StatusBadge}">
@@ -45,6 +45,15 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="" Width="80">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Button Content="Cancel" Style="{StaticResource Ghost}" Padding="8,3" FontSize="11"
+                                                    Command="{Binding DataContext.CancelDownloadCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                    CommandParameter="{Binding}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
                             </DataGrid.Columns>
                         </DataGrid>
                     </DockPanel>
@@ -62,7 +71,7 @@
                                 <DataGridTextColumn Header="File" Binding="{Binding FileName}" Width="*"/>
                                 <DataGridTextColumn Header="Channel" Binding="{Binding ChannelTitle}" Width="140"/>
                                 <DataGridTextColumn Header="Type" Binding="{Binding Kind}" Width="90"/>
-                                <DataGridTemplateColumn Header="Status" Width="110">
+                                <DataGridTemplateColumn Header="Status" Width="110" SortMemberPath="Status">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <Border Style="{StaticResource StatusBadge}">
@@ -91,7 +100,7 @@
                                 <DataGridTextColumn Header="File" Binding="{Binding FileName}" Width="*"/>
                                 <DataGridTextColumn Header="Channel" Binding="{Binding ChannelTitle}" Width="160"/>
                                 <DataGridTextColumn Header="Size" Binding="{Binding SizeBytes, Converter={StaticResource Bytes}}" Width="90"/>
-                                <DataGridTemplateColumn Header="Status" Width="110">
+                                <DataGridTemplateColumn Header="Status" Width="110" SortMemberPath="Status">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <Border Style="{StaticResource StatusBadge}">
@@ -103,6 +112,15 @@
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
                                 <DataGridTextColumn Header="Received (UTC)" Binding="{Binding ReceivedUtc, StringFormat=yyyy-MM-dd HH:mm:ss}" Width="160"/>
+                                <DataGridTemplateColumn Header="" Width="70">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Button Content="Retry" Style="{StaticResource Ghost}" Padding="8,3" FontSize="11"
+                                                    Command="{Binding DataContext.RetryDownloadCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                                    CommandParameter="{Binding}"/>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
                             </DataGrid.Columns>
                         </DataGrid>
                     </DockPanel>

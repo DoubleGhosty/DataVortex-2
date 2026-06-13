@@ -1,6 +1,7 @@
 using DataVortex.Core.Models;
 using DataVortex.Core.Pipeline;
 using DataVortex.Core.Storage;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -14,7 +15,7 @@ public sealed class DeduplicatorTests : IDisposable
     {
         var paths = new AppPaths(_dir).EnsureCreated();
         var storage = new StorageService(paths);
-        return new DownloadDeduplicator(paths, storage, NullLogger<DownloadDeduplicator>.Instance);
+        return new DownloadDeduplicator(storage, NullLogger<DownloadDeduplicator>.Instance);
     }
 
     [Fact]
@@ -64,6 +65,7 @@ public sealed class DeduplicatorTests : IDisposable
 
     public void Dispose()
     {
+        SqliteConnection.ClearAllPools(); // release the SQLite file handles before deleting the temp dir
         try { Directory.Delete(_dir, recursive: true); } catch { /* best-effort */ }
     }
 }

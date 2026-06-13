@@ -50,7 +50,7 @@ public sealed partial class ShellViewModel : ObservableObject
         ITelegramService telegram, IPipelineCoordinator coordinator, IBackfillService backfill, ISettingsService settings,
         CredentialStore credentials, IDialogService dialogs, IStorageService storage, IDownloadDeduplicator dedup,
         DashboardViewModel dashboard, ChannelsViewModel channels, QueuesViewModel queues,
-        FilesViewModel files, AccountsViewModel accounts, LogViewModel logs, SettingsViewModel settingsPanel,
+        FilesViewModel files, StatsViewModel stats, AccountsViewModel accounts, LogViewModel logs, SettingsViewModel settingsPanel,
         IUiDispatcher ui, ILogger<ShellViewModel> log)
     {
         _telegram = telegram;
@@ -72,6 +72,7 @@ public sealed partial class ShellViewModel : ObservableObject
             new() { Name = "Channels",  Glyph = "", ViewModel = channels },
             new() { Name = "Queues",    Glyph = "", ViewModel = queues },
             new() { Name = "Files",     Glyph = "", ViewModel = files },
+            new() { Name = "Stats", Glyph = "", ViewModel = stats },
             new() { Name = "Accounts",  Glyph = "", ViewModel = accounts },
             new() { Name = "Settings",  Glyph = "", ViewModel = settingsPanel },
             new() { Name = "Logs",      Glyph = "", ViewModel = logs }

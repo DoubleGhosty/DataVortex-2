@@ -18,7 +18,8 @@ public enum DownloadStatus
     Completed,
     Failed,
     Retrying,
-    Canceled
+    Canceled,        // interrupted by app shutdown — kept in the resume store, retried next launch
+    CanceledByUser   // explicitly cancelled in the UI — dropped from the resume store, not retried
 }
 
 public enum ProcessingStatus

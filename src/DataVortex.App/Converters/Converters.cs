@@ -35,7 +35,7 @@ public sealed class StatusToBrushConverter : IValueConverter
                 or "WaitingForCode" or "WaitingForPassword" => "Accent",
             "Retrying" or "Warning" => "Warning",
             "Failed" or "Error" or "Fatal" => "Error",
-            "Ignored" or "Canceled" or "Disconnected" or "Debug" or "Verbose" => "Muted",
+            "Ignored" or "Canceled" or "CanceledByUser" or "Disconnected" or "Debug" or "Verbose" => "Muted",
             _ => "TextSecondary"
         };
         return Application.Current.TryFindResource(key) as Brush

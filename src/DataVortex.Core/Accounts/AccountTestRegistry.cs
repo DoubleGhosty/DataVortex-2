@@ -103,17 +103,20 @@ public sealed class AccountTestRegistry : IAccountTestRegistry
     public void Complete(string? email, string? password, AccountTestResult result)
     {
         var key = AccountKey.Of(email, password);
+        AccountEntry entry;
         lock (_gate)
         {
             _reserved.Remove(key);
-            _tested[key] = new AccountEntry
+            entry = new AccountEntry
             {
                 Email = (email ?? "").Trim(),
                 Password = (password ?? "").Trim(),
                 Result = result.TestedUtc == default ? result with { TestedUtc = DateTime.UtcNow } : result
             };
-            SaveNoLock();
+            _tested[key] = entry;
         }
+        // Single-row upsert, OUTSIDE the lock: O(1) per test and no worker is blocked on a growing file write.
+        _storage.UpsertAccount(ToRecord(key, entry));
     }
 
     public void Release(string? email, string? password)
@@ -143,6 +146,16 @@ public sealed class AccountTestRegistry : IAccountTestRegistry
 
     private void Load()
     {
+        // Seed the in-memory dedup index from the SQLite store (one query, no whole-file read).
+        var stored = _storage.LoadAccounts();
+        if (stored.Count > 0)
+        {
+            foreach (var a in stored) _tested[a.Key] = ToEntry(a);
+            _log.LogInformation("Account registry loaded: {Count} known account(s)", _tested.Count);
+            return;
+        }
+
+        // Empty table → one-time migration of the legacy account-tests.json, if present.
         try
         {
             if (File.Exists(_path))
@@ -151,15 +164,20 @@ public sealed class AccountTestRegistry : IAccountTestRegistry
                 if (entries is not null)
                 {
                     foreach (var e in entries)
-                        _tested[AccountKey.Of(e.Email, e.Password)] = e;
-                    _log.LogInformation("Account registry loaded: {Count} known account(s)", _tested.Count);
+                    {
+                        var key = AccountKey.Of(e.Email, e.Password);
+                        _tested[key] = e;
+                        _storage.UpsertAccount(ToRecord(key, e));
+                    }
+                    try { File.Move(_path, _path + ".migrated", overwrite: true); } catch { }
+                    _log.LogInformation("Account registry migrated {Count} account(s) from account-tests.json", _tested.Count);
                     return;
                 }
             }
         }
-        catch (Exception ex) { _log.LogWarning(ex, "Failed to load account registry; will migrate from metadata"); }
+        catch (Exception ex) { _log.LogWarning(ex, "Failed to migrate account-tests.json; will try metadata"); }
 
-        // First run: import already-tested credentials from existing metadata so we never re-test history.
+        // Otherwise: import already-tested credentials from existing metadata so we never re-test history.
         try
         {
             foreach (var r in _storage.LoadRecords())
@@ -170,33 +188,51 @@ public sealed class AccountTestRegistry : IAccountTestRegistry
                     if (!c.Tested) continue;
                     var key = AccountKey.Of(c.Username, c.Password);
                     if (_tested.ContainsKey(key)) continue;
-                    _tested[key] = new AccountEntry
+                    var entry = new AccountEntry
                     {
                         Email = (c.Username ?? "").Trim(),
                         Password = (c.Password ?? "").Trim(),
                         Url = c.Url,
                         Result = new AccountTestResult(
                             c.TestSuccess ?? false, c.StatusCode ?? 0, c.AccessToken, c.RefreshToken,
-                            c.Credit, c.BirthDate, c.TestMessage, c.TestedUtc ?? DateTime.UtcNow)
+                            c.Credit, c.BirthDate, c.TestMessage, c.TestedUtc ?? DateTime.UtcNow, c.AccountState)
                     };
+                    _tested[key] = entry;
+                    _storage.UpsertAccount(ToRecord(key, entry));
                 }
             }
             if (_tested.Count > 0)
-            {
-                SaveNoLock();
                 _log.LogInformation("Account registry migrated {Count} tested account(s) from metadata", _tested.Count);
-            }
         }
         catch (Exception ex) { _log.LogWarning(ex, "Account registry migration failed"); }
     }
 
-    private void SaveNoLock()
+    private static AccountRecord ToRecord(string key, AccountEntry e)
     {
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-            File.WriteAllText(_path, JsonSerializer.Serialize(_tested.Values.ToList(), Json));
-        }
-        catch (Exception ex) { _log.LogWarning(ex, "Failed to persist account registry"); }
+        var r = e.Result;
+        return new AccountRecord(
+            key, e.Email, e.Password, e.Url,
+            r.Success, r.StatusCode, r.AccountState, Categorize(r.StatusCode, r.AccountState),
+            r.Credit, r.BirthDate, r.Message, r.TestedUtc == default ? DateTime.UtcNow : r.TestedUtc,
+            r.AccessToken, r.RefreshToken);
     }
+
+    private static AccountEntry ToEntry(AccountRecord a) => new()
+    {
+        Email = a.Email,
+        Password = a.Password,
+        Url = a.Url,
+        Result = new AccountTestResult(a.Success, a.StatusCode, a.AccessToken, a.RefreshToken,
+            a.Credit, a.BirthDate, a.Message, a.TestedUtc, a.AccountState)
+    };
+
+    /// <summary>Mirror of <c>CredentialEntry.Category</c>, computed at write time so the UI can filter in SQL.</summary>
+    public static string Categorize(int statusCode, string? accountState) => statusCode switch
+    {
+        200 when string.Equals(accountState, "ACTIVE", StringComparison.OrdinalIgnoreCase) => "VALIDE",
+        200 when string.Equals(accountState, "SUSPICIOUS_LOGIN_REPORTED_BY_USER", StringComparison.OrdinalIgnoreCase) => "BAN",
+        200 => "CUSTOM",
+        400 => "INVALIDE",
+        _ => ""
+    };
 }

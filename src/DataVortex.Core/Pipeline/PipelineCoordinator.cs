@@ -63,7 +63,7 @@ public sealed class PipelineCoordinator : IPipelineCoordinator, IDisposable
             s.MaxParallelDownloads, s.DownloadQueueCapacity, s.MaxDownloadRetries, s.RetryBaseDelayMs);
 
         _processing = new ProcessingPipeline(
-            extractor, storage, metrics, _pauseGate,
+            extractor, storage, metrics, settings, _pauseGate,
             loggerFactory.CreateLogger<ProcessingPipeline>(),
             s.MaxParallelProcessing, s.ProcessingQueueCapacity, passClient, _accounts);
 
@@ -75,15 +75,15 @@ public sealed class PipelineCoordinator : IPipelineCoordinator, IDisposable
 
     private void OnDownloadJobChanged(DownloadJob job)
     {
-        // Persist the dedup key only once the download succeeds; release it on failure so it can be retried.
+        // Persist the dedup key only once the download succeeds; release it otherwise so it can be retried.
         if (job.Status == DownloadStatus.Completed)
             _dedup.Commit(job.DocumentId, job.SizeBytes, job.FileName);
-        else if (job.Status is DownloadStatus.Failed or DownloadStatus.Canceled)
+        else if (job.Status is DownloadStatus.Failed or DownloadStatus.Canceled or DownloadStatus.CanceledByUser)
             _dedup.RemoveReservation(job.DocumentId, job.SizeBytes, job.FileName);
 
-        // Forget it from the resume store once downloaded or permanently failed
-        // (Canceled = shutdown of an in-flight job → keep it so it resumes next launch).
-        if (job.Status is DownloadStatus.Completed or DownloadStatus.Failed)
+        // Forget it from the resume store once it is done, permanently failed, or cancelled by the user.
+        // Plain Canceled = shutdown of an in-flight job → keep it so it resumes next launch.
+        if (job.Status is DownloadStatus.Completed or DownloadStatus.Failed or DownloadStatus.CanceledByUser)
             _pending.Remove(job.ChannelId, job.MessageId, job.DocumentId);
 
         DownloadJobChanged?.Invoke(job);
@@ -161,6 +161,10 @@ public sealed class PipelineCoordinator : IPipelineCoordinator, IDisposable
     }
 
     public void UpdateBandwidthLimit(long bytesPerSecond) => _bandwidth.BytesPerSecond = bytesPerSecond;
+
+    public void CancelDownload(DownloadJob job) => _download.Cancel(job);
+    public void RetryDownload(DownloadJob job) => _download.Retry(job);
+    public void SetMaxConcurrentDownloads(int count) => _download.SetMaxConcurrent(count);
 
     /// <summary>Re-queues archives detected but not finished before the last shutdown. Documents are re-fetched
     /// (file_reference may have expired); a job whose message is gone is kept in the store and skipped. Dialogs

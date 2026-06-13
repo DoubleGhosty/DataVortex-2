@@ -34,6 +34,11 @@ public sealed class AppSettings
     /// Password / PASSWORD / passwords.</summary>
     public List<string> ExtractKeywords { get; set; } = new() { "password" };
 
+    /// <summary>When false (default), matching *.txt entries are scanned for credentials <b>in memory</b> and
+    /// never written to disk — far less disk I/O and no per-message folders (the killer at high volume).
+    /// Set true to also persist the extracted *.txt under <c>extracted/</c> (e.g. to browse them in Files).</summary>
+    public bool KeepExtractedFiles { get; set; } = false;
+
     // ---- Download filtering ----
     /// <summary>Only files whose extension is in this list are downloaded; an empty list downloads
     /// everything. Default: archives only (so plain .txt and other attachments are skipped).</summary>

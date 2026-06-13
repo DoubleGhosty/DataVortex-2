@@ -1,5 +1,4 @@
 using DataVortex.Core.Abstractions;
-using DataVortex.Core.Models;
 using Microsoft.Extensions.Logging;
 
 namespace DataVortex.Core.Pipeline;
@@ -15,7 +14,7 @@ public interface IDownloadDeduplicator
     /// <summary>Drops an in-flight reservation (call on a failed/cancelled download) so it can be retried.</summary>
     bool RemoveReservation(long documentId, long sizeBytes, string fileName);
 
-    /// <summary>Wipes the whole dedup store (memory + disk). Exposed as a button in the UI.</summary>
+    /// <summary>Wipes the whole dedup store (memory + DB). Exposed as a button in the UI.</summary>
     void Clear();
 
     /// <summary>Approximate number of distinct archives currently remembered.</summary>
@@ -26,25 +25,25 @@ public interface IDownloadDeduplicator
 /// Prevents downloading the same archive twice — even across different channels and times. Keys on the
 /// Telegram document id (catches forwards/reposts) AND on size+filename (catches identical re-uploads).
 ///
-/// Reservations are in-memory only; a key is <b>persisted to disk only when the download succeeds</b>
-/// (<see cref="Commit"/>). So a download that fails or is interrupted is <i>not</i> permanently skipped —
-/// it is retried on the next detection/restart. The on-disk store survives restarts and the pipeline's
-/// post-processing file cleanup.
+/// Reservations are in-memory only; a key is <b>persisted (to the SQLite dedup table) only when the
+/// download succeeds</b> (<see cref="Commit"/>). So a failed/interrupted download is retried on the next
+/// detection/restart. At startup the committed set is seeded with a single SQL query (no per-file reads).
 /// </summary>
 public sealed class DownloadDeduplicator : IDownloadDeduplicator
 {
     private readonly object _gate = new();
     private readonly HashSet<string> _committed = new(StringComparer.Ordinal); // persisted, survives restart
     private readonly HashSet<string> _reserved = new(StringComparer.Ordinal);  // in-flight, this run only
-    private readonly string _path;
+    private readonly IStorageService _storage;
     private readonly ILogger<DownloadDeduplicator> _log;
 
-    public DownloadDeduplicator(AppPaths paths, IStorageService storage, ILogger<DownloadDeduplicator> log)
+    public DownloadDeduplicator(IStorageService storage, ILogger<DownloadDeduplicator> log)
     {
-        _path = Path.Combine(paths.Root, "dedup.keys");
+        _storage = storage;
         _log = log;
-        LoadFromFile();
-        SeedFromRecords(storage.LoadRecords());
+
+        foreach (var key in storage.LoadDedupKeys()) _committed.Add(key);
+        foreach (var (size, name) in storage.GetArchiveSizeNames()) _committed.Add(SnKey(size, name));
         _log.LogInformation("Deduplicator initialised ({Count} archive key(s) known)", _committed.Count);
     }
 
@@ -70,14 +69,14 @@ public sealed class DownloadDeduplicator : IDownloadDeduplicator
     {
         var idKey = IdKey(documentId);
         var snKey = SnKey(sizeBytes, fileName);
+        bool persist;
         lock (_gate)
         {
             _reserved.Remove(idKey);
             _reserved.Remove(snKey);
-            var added = _committed.Add(idKey);
-            added |= _committed.Add(snKey);
-            if (added) Append(idKey, snKey);
+            persist = _committed.Add(idKey) | _committed.Add(snKey);
         }
+        if (persist) _storage.AddDedupKeys(new[] { idKey, snKey }); // DB write outside the lock
     }
 
     public bool RemoveReservation(long documentId, long sizeBytes, string fileName)
@@ -98,39 +97,12 @@ public sealed class DownloadDeduplicator : IDownloadDeduplicator
         {
             _committed.Clear();
             _reserved.Clear();
-            try { if (File.Exists(_path)) File.Delete(_path); }
-            catch (Exception ex) { _log.LogWarning(ex, "Failed to delete dedup store"); }
         }
+        _storage.ClearDedupKeys();
         _log.LogInformation("Deduplication store cleared");
     }
 
     private bool Seen(string key) => _committed.Contains(key) || _reserved.Contains(key);
     private static string IdKey(long id) => "id:" + id;
     private static string SnKey(long size, string name) => "sn:" + size + "|" + (name ?? string.Empty).Trim().ToLowerInvariant();
-
-    private void SeedFromRecords(IReadOnlyList<FileRecord> records)
-    {
-        foreach (var r in records) _committed.Add(SnKey(r.SizeBytes, r.OriginalFileName));
-    }
-
-    private void LoadFromFile()
-    {
-        try
-        {
-            if (File.Exists(_path))
-                foreach (var line in File.ReadAllLines(_path))
-                    if (!string.IsNullOrWhiteSpace(line)) _committed.Add(line.Trim());
-        }
-        catch (Exception ex) { _log.LogWarning(ex, "Failed to load dedup store"); }
-    }
-
-    private void Append(params string[] keys)
-    {
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-            File.AppendAllLines(_path, keys);
-        }
-        catch (Exception ex) { _log.LogWarning(ex, "Failed to persist dedup keys"); }
-    }
 }

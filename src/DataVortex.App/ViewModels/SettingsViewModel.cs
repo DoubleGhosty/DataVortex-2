@@ -43,6 +43,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     // ---- Extraction (live) ----
     [ObservableProperty] private bool extractOnlyMatchingTxt;
+    [ObservableProperty] private bool keepExtractedFiles;
     [ObservableProperty] private string extractKeywords = "";
 
     // ---- Download filter (live) ----
@@ -109,6 +110,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         ParallelTransfers = s.ParallelTransfersPerFile.ToString();
 
         ExtractOnlyMatchingTxt = s.ExtractOnlyMatchingTxt;
+        KeepExtractedFiles = s.KeepExtractedFiles;
         ExtractKeywords = string.Join(Environment.NewLine, s.ExtractKeywords);
         DownloadExtensions = string.Join(Environment.NewLine, s.DownloadExtensions);
 
@@ -212,6 +214,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         // Extraction (live).
         s.ExtractOnlyMatchingTxt = ExtractOnlyMatchingTxt;
+        s.KeepExtractedFiles = KeepExtractedFiles;
         s.ExtractKeywords = ParseLines(ExtractKeywords);
 
         // Download filter (live) — normalise to lowercase ".ext".

@@ -72,6 +72,10 @@
                                    Text="Filtrage des .txt par NOM de fichier (le contenu n'est jamais inspecte)."/>
                         <CheckBox Content="N'extraire que les .txt dont le nom contient un mot-cle"
                                   IsChecked="{Binding ExtractOnlyMatchingTxt}"/>
+                        <CheckBox Content="Conserver les .txt extraits sur le disque"
+                                  IsChecked="{Binding KeepExtractedFiles}" Margin="0,8,0,0"/>
+                        <TextBlock Style="{StaticResource Caption}" Margin="22,2,0,0" TextWrapping="Wrap"
+                                   Text="Decoche (defaut) : les .txt sont analyses en memoire, jamais ecrits sur disque — beaucoup moins d'I/O et aucun dossier par message a fort volume."/>
                         <TextBlock Style="{StaticResource Caption}" Margin="0,14,0,6"
                                    Text="Mots-cles (un par ligne)"/>
                         <TextBox Text="{Binding ExtractKeywords, UpdateSourceTrigger=PropertyChanged}"

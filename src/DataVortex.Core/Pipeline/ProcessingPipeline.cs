@@ -2,6 +2,7 @@ using System.Threading.Channels;
 using System.IO;
 using DataVortex.Core.Abstractions;
 using DataVortex.Core.Accounts;
+using DataVortex.Core.Configuration;
 using DataVortex.Core.Models;
 using Microsoft.Extensions.Logging;
 
@@ -17,6 +18,7 @@ public sealed class ProcessingPipeline
     private readonly IArchiveExtractor _extractor;
     private readonly IStorageService _storage;
     private readonly IMetricsService _metrics;
+    private readonly ISettingsService _settings;
     private readonly DataVortex.Core.Passculture.PasscultureClient? _passClient;
     private readonly IAccountTestRegistry? _accounts;
     private readonly PauseGate _pauseGate;
@@ -33,7 +35,7 @@ public sealed class ProcessingPipeline
     public int QueueDepth => Volatile.Read(ref _queueDepth);
 
     public ProcessingPipeline(
-        IArchiveExtractor extractor, IStorageService storage, IMetricsService metrics,
+        IArchiveExtractor extractor, IStorageService storage, IMetricsService metrics, ISettingsService settings,
         PauseGate pauseGate, ILogger<ProcessingPipeline> log, int workerCount, int queueCapacity,
         DataVortex.Core.Passculture.PasscultureClient? passClient = null,
         IAccountTestRegistry? accounts = null)
@@ -41,6 +43,7 @@ public sealed class ProcessingPipeline
         _extractor = extractor;
         _storage = storage;
         _metrics = metrics;
+        _settings = settings;
         _pauseGate = pauseGate;
         _log = log;
         _passClient = passClient;
@@ -106,8 +109,42 @@ public sealed class ProcessingPipeline
                 $"{Sanitize(job.ChannelTitle)}_{job.ChannelId}",
                 job.MessageId.ToString());
 
-            var result = await _extractor.ExtractTextFilesAsync(
-                job.LocalPath, destDir, job.MessageText, () => _metrics.ReportExtractedFile(), ct).ConfigureAwait(false);
+            // Default path: scan each matching *.txt for credentials straight from the archive stream, in
+            // memory — nothing is written to disk, so no per-message folder and far less I/O at high volume.
+            // Opt-in (KeepExtractedFiles) restores writing the *.txt under extracted/ for later browsing.
+            var keepFiles = _settings.Current.KeepExtractedFiles;
+            var credentials = new List<CredentialEntry>();
+
+            ExtractionResult result;
+            if (keepFiles)
+            {
+                result = await _extractor.ExtractTextFilesAsync(
+                    job.LocalPath, destDir, job.MessageText, () => _metrics.ReportExtractedFile(), null, ct).ConfigureAwait(false);
+                foreach (var path in result.ExtractedFiles)
+                {
+                    try
+                    {
+                        var found = Extraction.CredentialScanner.ScanFile(path);
+                        if (found.Count > 0) credentials.AddRange(found);
+                    }
+                    catch { /* ignore scanning errors per-file */ }
+                }
+            }
+            else
+            {
+                result = await _extractor.ExtractTextFilesAsync(
+                    job.LocalPath, destDir, job.MessageText, () => _metrics.ReportExtractedFile(),
+                    (_, stream, _) =>
+                    {
+                        try
+                        {
+                            var found = Extraction.CredentialScanner.ScanStream(stream);
+                            if (found.Count > 0) credentials.AddRange(found);
+                        }
+                        catch { /* ignore scanning errors per-entry */ }
+                        return Task.CompletedTask;
+                    }, ct).ConfigureAwait(false);
+            }
 
             job.Kind = result.Kind;
             job.ExtractedCount = result.ExtractedFiles.Count;
@@ -118,21 +155,6 @@ public sealed class ProcessingPipeline
                     : ProcessingStatus.Completed;
             if (result.Errors.Count > 0) job.Error = string.Join("; ", result.Errors);
             JobChanged?.Invoke(job);
-
-            // Scan extracted text files for credentials (e.g. passculture entries)
-            var credentials = new List<CredentialEntry>();
-            foreach (var path in result.ExtractedFiles)
-            {
-                try
-                {
-                    var found = Extraction.CredentialScanner.ScanFile(path);
-                    if (found?.Count > 0) credentials.AddRange(found);
-                }
-                catch
-                {
-                    // ignore scanning errors per-file
-                }
-            }
 
             var record = new FileRecord
             {
@@ -147,7 +169,8 @@ public sealed class ProcessingPipeline
                 DownloadPath = job.LocalPath,
                 Kind = result.Kind,
                 Status = job.Status,
-                ExtractedTextFiles = result.ExtractedFiles.ToList(),
+                // In-memory mode produces no files on disk, so the record carries no paths to point at.
+                ExtractedTextFiles = keepFiles ? result.ExtractedFiles.ToList() : new List<string>(),
                 Credentials = credentials,
                 Error = job.Error
             };

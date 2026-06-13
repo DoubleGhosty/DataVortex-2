@@ -133,6 +133,7 @@ public partial class App : Application
         services.AddSingleton<ChannelsViewModel>();
         services.AddSingleton<QueuesViewModel>();
         services.AddSingleton<FilesViewModel>();
+        services.AddSingleton<StatsViewModel>();
         services.AddSingleton<AccountsViewModel>();
         services.AddSingleton<SettingsViewModel>();
         services.AddSingleton<ShellViewModel>();

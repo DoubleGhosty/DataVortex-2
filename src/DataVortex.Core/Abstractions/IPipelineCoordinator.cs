@@ -22,6 +22,13 @@ public interface IPipelineCoordinator
 
     void UpdateBandwidthLimit(long bytesPerSecond);
 
+    /// <summary>Cancel a specific download (queued or in-flight).</summary>
+    void CancelDownload(DownloadJob job);
+    /// <summary>Re-queue a failed/cancelled download from the start.</summary>
+    void RetryDownload(DownloadJob job);
+    /// <summary>Live cap on concurrent downloads (1..MaxParallelDownloads).</summary>
+    void SetMaxConcurrentDownloads(int count);
+
     int DownloadQueueDepth { get; }
     int ProcessingQueueDepth { get; }
     int ActiveDownloads { get; }

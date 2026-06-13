@@ -38,19 +38,32 @@
                             DockPanel.Dock="Right" Margin="0,0,8,0"/>
                 </DockPanel>
 
-                <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,12">
-                    <TextBlock Text="Filtrer :" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                    <CheckBox IsChecked="{Binding ShowValid}" Margin="0,0,16,0" FontWeight="SemiBold" Foreground="{DynamicResource Success}"
-                              Content="{Binding CountValid, StringFormat='VALIDE : {0}'}"/>
-                    <CheckBox IsChecked="{Binding ShowBan}" Margin="0,0,16,0" FontWeight="SemiBold" Foreground="{DynamicResource Error}"
-                              Content="{Binding CountBan, StringFormat='BAN : {0}'}"/>
-                    <CheckBox IsChecked="{Binding ShowCustom}" Margin="0,0,16,0" FontWeight="SemiBold" Foreground="{DynamicResource Warning}"
-                              Content="{Binding CountCustom, StringFormat='CUSTOM : {0}'}"/>
-                    <Border Style="{StaticResource StatusBadge}" Margin="8,0,0,0">
-                        <TextBlock FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondary}"
-                                   Text="{Binding CountRetry, StringFormat='RETRY : {0}'}"/>
-                    </Border>
-                </StackPanel>
+                <DockPanel Grid.Row="1" Margin="0,0,0,12" LastChildFill="False">
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                        <TextBlock Text="Filtrer :" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                        <CheckBox IsChecked="{Binding ShowValid}" Margin="0,0,16,0" FontWeight="SemiBold" Foreground="{DynamicResource Success}"
+                                  Content="{Binding CountValid, StringFormat='VALIDE : {0}'}"/>
+                        <CheckBox IsChecked="{Binding ShowBan}" Margin="0,0,16,0" FontWeight="SemiBold" Foreground="{DynamicResource Error}"
+                                  Content="{Binding CountBan, StringFormat='BAN : {0}'}"/>
+                        <CheckBox IsChecked="{Binding ShowCustom}" Margin="0,0,16,0" FontWeight="SemiBold" Foreground="{DynamicResource Warning}"
+                                  Content="{Binding CountCustom, StringFormat='CUSTOM : {0}'}"/>
+                        <Border Style="{StaticResource StatusBadge}" Margin="8,0,0,0">
+                            <TextBlock FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondary}"
+                                       Text="{Binding CountRetry, StringFormat='RETRY : {0}'}"/>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
+                        <Button Content="◀" Style="{StaticResource Ghost}" Padding="10,3" Command="{Binding PrevPageCommand}"
+                                IsEnabled="{Binding CanPrev}"/>
+                        <TextBlock Text="{Binding PageInfo}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="8,0"/>
+                        <Button Content="▶" Style="{StaticResource Ghost}" Padding="10,3" Command="{Binding NextPageCommand}"
+                                IsEnabled="{Binding CanNext}" Margin="0,0,16,0"/>
+                        <TextBlock Text="Recherche email :" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBox Width="220" VerticalContentAlignment="Center"
+                                 Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=250}"/>
+                    </StackPanel>
+                </DockPanel>
 
                 <DataGrid Grid.Row="2" ItemsSource="{Binding Accounts}" AutoGenerateColumns="False" IsReadOnly="True">
                     <DataGrid.Columns>
