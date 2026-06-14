@@ -96,7 +96,7 @@ public sealed partial class AccountsViewModel : ObservableObject
     private readonly PasscultureClient _passClient;
     private readonly IAccountTestRegistry _accounts;
     private readonly IDialogService _dialogs;
-    private readonly TwoCaptchaService _twoCaptcha;
+    private readonly ICaptchaSolver _twoCaptcha;
 
     // One checker run at a time; the Stop button cancels its token.
     private CancellationTokenSource? _checkerCts;
@@ -128,7 +128,7 @@ public sealed partial class AccountsViewModel : ObservableObject
     }
 
     public AccountsViewModel(IStorageService storage, IUiDispatcher ui, PasscultureClient passClient,
-        IAccountTestRegistry accounts, IDialogService dialogs, TwoCaptchaService twoCaptcha)
+        IAccountTestRegistry accounts, IDialogService dialogs, ICaptchaSolver twoCaptcha)
     {
         _storage = storage;
         _ui = ui;

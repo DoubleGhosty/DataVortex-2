@@ -110,10 +110,17 @@ public partial class App : Application
         // ---- App services ----
         services.AddSingleton<IUiDispatcher, UiDispatcher>();
         services.AddSingleton<IDialogService, DialogService>();
-        // Passculture API client (simple HttpClient instance)
+        // Captcha solvers: register both, then expose the one chosen by the CaptchaProvider setting.
         services.AddSingleton(sp => new DataVortex.Core.Passculture.TwoCaptchaService(
             sp.GetRequiredService<ISettingsService>().Current.TwoCaptchaApiKey,
             sp.GetRequiredService<ILogger<DataVortex.Core.Passculture.TwoCaptchaService>>()));
+        services.AddSingleton(sp => new DataVortex.Core.Passculture.CapMonsterService(
+            sp.GetRequiredService<ISettingsService>().Current.CapMonsterApiKey,
+            sp.GetRequiredService<ILogger<DataVortex.Core.Passculture.CapMonsterService>>()));
+        services.AddSingleton<DataVortex.Core.Passculture.ICaptchaSolver>(sp =>
+            string.Equals(sp.GetRequiredService<ISettingsService>().Current.CaptchaProvider, "CapMonster", StringComparison.OrdinalIgnoreCase)
+                ? sp.GetRequiredService<DataVortex.Core.Passculture.CapMonsterService>()
+                : sp.GetRequiredService<DataVortex.Core.Passculture.TwoCaptchaService>());
 
         services.AddSingleton(sp =>
         {
@@ -122,7 +129,7 @@ public partial class App : Application
             var pool = new DataVortex.Core.Passculture.ProxyPool(
                 cfg.Proxies, new Uri("https://backend.passculture.app/"), cfg.ProxyEnabled);
             return new DataVortex.Core.Passculture.PasscultureClient(
-                pool, sp.GetService<DataVortex.Core.Passculture.TwoCaptchaService>());
+                pool, sp.GetService<DataVortex.Core.Passculture.ICaptchaSolver>());
         });
 
 

@@ -57,8 +57,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     // ---- Appearance (applied on Save) ----
     [ObservableProperty] private bool isLightTheme;
 
-    // ---- Passculture / 2captcha (restart required) ----
+    // ---- Passculture / captcha (restart required) ----
     [ObservableProperty] private string twoCaptchaApiKey = "";
+    [ObservableProperty] private bool useCapMonster;
+    [ObservableProperty] private string capMonsterApiKey = "";
 
     // ---- Proxy for Passculture (restart required) ----
     [ObservableProperty] private bool proxyEnabled;
@@ -120,6 +122,8 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         IsLightTheme = s.Theme == AppTheme.Light;
         TwoCaptchaApiKey = s.TwoCaptchaApiKey ?? "";
+        CapMonsterApiKey = s.CapMonsterApiKey ?? "";
+        UseCapMonster = string.Equals(s.CaptchaProvider, "CapMonster", StringComparison.OrdinalIgnoreCase);
 
         ProxyEnabled = s.ProxyEnabled;
         _importedProxies = null;
@@ -233,6 +237,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         var newTheme = IsLightTheme ? AppTheme.Light : AppTheme.Dark;
         s.Theme = newTheme;
         s.TwoCaptchaApiKey = (TwoCaptchaApiKey ?? "").Trim();
+        s.CapMonsterApiKey = (CapMonsterApiKey ?? "").Trim();
+        s.CaptchaProvider = UseCapMonster ? "CapMonster" : "TwoCaptcha";
 
         // Proxy (restart required — the rotating HttpClient pool is built once at startup).
         s.ProxyEnabled = ProxyEnabled;

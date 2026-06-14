@@ -5,8 +5,11 @@ using Microsoft.Extensions.Logging;
 
 namespace DataVortex.Core.Passculture;
 
-public sealed class TwoCaptchaService
+public sealed class TwoCaptchaService : ICaptchaSolver
 {
+    private const int MaxAttempts = 24;
+    private const int PollIntervalMs = 5000;
+
     private readonly string _apiKey;
     private readonly HttpClient _http = new();
     private readonly ILogger<TwoCaptchaService> _log;
@@ -28,8 +31,9 @@ public sealed class TwoCaptchaService
     /// <summary>
     /// Solve a recaptcha using 2captcha. Returns the token or null if not available/failed.
     /// </summary>
-    public async Task<string?> SolveRecaptchaAsync(string siteKey, string pageUrl, int maxAttempts = 24, int pollIntervalMs = 5000, CancellationToken ct = default)
+    public async Task<string?> SolveRecaptchaAsync(string siteKey, string pageUrl, CancellationToken ct = default)
     {
+        int maxAttempts = MaxAttempts, pollIntervalMs = PollIntervalMs;
         if (string.IsNullOrWhiteSpace(_apiKey)) { _log.LogWarning("2captcha: aucune clé API configurée"); return null; }
         try
         {

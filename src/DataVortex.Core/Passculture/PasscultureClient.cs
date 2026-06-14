@@ -37,13 +37,13 @@ public sealed class RefreshResult
 public sealed class PasscultureClient
 {
     private readonly ProxyPool _pool;
-    private readonly TwoCaptchaService? _twoCaptcha;
+    private readonly ICaptchaSolver? _captcha;
     private readonly ILogger<PasscultureClient> _log;
 
-    public PasscultureClient(ProxyPool pool, TwoCaptchaService? twoCaptcha = null, ILogger<PasscultureClient>? log = null)
+    public PasscultureClient(ProxyPool pool, ICaptchaSolver? captcha = null, ILogger<PasscultureClient>? log = null)
     {
         _pool = pool;
-        _twoCaptcha = twoCaptcha;
+        _captcha = captcha;
         _log = log ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<PasscultureClient>.Instance;
     }
 
@@ -65,12 +65,12 @@ public sealed class PasscultureClient
         try
         {
             // If no captcha token provided and TwoCaptchaService is available, try to solve automatically
-            if (string.IsNullOrWhiteSpace(captchaToken) && _twoCaptcha is not null)
+            if (string.IsNullOrWhiteSpace(captchaToken) && _captcha is not null)
             {
                 try
                 {
                     _log.LogInformation("Attempting to solve captcha via 2captcha");
-                    var solved = await _twoCaptcha.SolveRecaptchaAsync(
+                    var solved = await _captcha.SolveRecaptchaAsync(
                         siteKey: "6LdWB0caAAAAAKfVe3he0FqXQXOepICF-5aZh_rQ",
                         pageUrl: "https://passculture.app/connexion?preventCancellation=true");
                     _log.LogInformation("2captcha returned token: {TokenPresent}", !string.IsNullOrWhiteSpace(solved));
@@ -127,10 +127,10 @@ public sealed class PasscultureClient
     /// <see cref="SignInAsync"/>, that method does not solve again.</summary>
     public async Task<string?> SolveCaptchaAsync(CancellationToken ct = default)
     {
-        if (_twoCaptcha is null) return null;
+        if (_captcha is null) return null;
         try
         {
-            return await _twoCaptcha.SolveRecaptchaAsync(
+            return await _captcha.SolveRecaptchaAsync(
                 siteKey: "6LdWB0caAAAAAKfVe3he0FqXQXOepICF-5aZh_rQ",
                 pageUrl: "https://passculture.app/connexion?preventCancellation=true",
                 ct: ct).ConfigureAwait(false);

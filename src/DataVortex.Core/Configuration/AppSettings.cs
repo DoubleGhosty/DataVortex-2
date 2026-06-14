@@ -63,8 +63,14 @@ public sealed class AppSettings
     public List<WatchedChannel> WatchedChannels { get; set; } = new();
 
     // ---- External services ----
-    // 2captcha key (optional). Keep secrets in credential store in production; settings.json is user-facing.
-    public string TwoCaptchaApiKey { get; set; } = "e0650244d66d3b814d47e0646445fbac";
+    /// <summary>Which captcha solver to use: "TwoCaptcha" or "CapMonster". Both return a reusable token.</summary>
+    public string CaptchaProvider { get; set; } = "TwoCaptcha";
+
+    // 2captcha key — empty by default; filled in from the Settings panel (never hard-coded in source).
+    public string TwoCaptchaApiKey { get; set; } = "";
+
+    /// <summary>CapMonster Cloud API key (used when <see cref="CaptchaProvider"/> is "CapMonster").</summary>
+    public string CapMonsterApiKey { get; set; } = "";
 
     // ---- Proxy (used for Passculture backend requests) ----
     /// <summary>When true, Passculture backend requests are routed through the proxies in <see cref="Proxies"/>,
