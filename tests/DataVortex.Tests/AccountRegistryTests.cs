@@ -15,11 +15,19 @@ namespace DataVortex.Tests;
 public sealed class AccountRegistryTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "dvx_acc_" + Guid.NewGuid().ToString("N"));
+    private readonly List<StorageService> _stores = new();
+
+    private StorageService NewStore(AppPaths paths)
+    {
+        var storage = new StorageService(paths);
+        _stores.Add(storage);
+        return storage;
+    }
 
     private (AppPaths paths, StorageService storage) New()
     {
         var paths = new AppPaths(_dir).EnsureCreated();
-        return (paths, new StorageService(paths));
+        return (paths, NewStore(paths));
     }
 
     [Fact]
@@ -90,7 +98,7 @@ public sealed class AccountRegistryTests : IDisposable
         var legacyPath = Path.Combine(paths.Root, "account-tests.json");
         File.WriteAllText(legacyPath, json);
 
-        var storage = new StorageService(paths);
+        var storage = NewStore(paths);
         var reg = new AccountTestRegistry(paths, storage, NullLogger<AccountTestRegistry>.Instance);
 
         Assert.True(reg.TryGet("leg@x", "p", out var r));
@@ -100,8 +108,20 @@ public sealed class AccountRegistryTests : IDisposable
         Assert.Single(storage.SearchAccounts(null, new[] { "VALIDE" }));
     }
 
+    [Theory]
+    [InlineData(200, "ACTIVE", "VALIDE")]
+    [InlineData(200, "SUSPENDED", "BAN")]
+    [InlineData(200, "SUSPENDED_UPON_USER_REQUEST", "BAN")]
+    [InlineData(200, "SUSPICIOUS_LOGIN_REPORTED_BY_USER", "BAN")]
+    [InlineData(200, "DELETED", "BAN")]
+    [InlineData(200, "SOMETHING_ELSE", "CUSTOM")]
+    [InlineData(400, null, "INVALIDE")]
+    public void Categorize_maps_suspended_states_to_BAN(int code, string? state, string expected)
+        => Assert.Equal(expected, AccountTestRegistry.Categorize(code, state));
+
     public void Dispose()
     {
+        foreach (var s in _stores) { try { s.Dispose(); } catch { /* ignore */ } }
         SqliteConnection.ClearAllPools();
         try { Directory.Delete(_dir, recursive: true); } catch { /* best-effort */ }
     }

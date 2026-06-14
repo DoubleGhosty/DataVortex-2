@@ -23,8 +23,12 @@ public sealed record CredentialEntry(
     /// 200+ACTIVE = VALIDE, 200+SUSPICIOUS_LOGIN_REPORTED_BY_USER = BAN, other 200 = CUSTOM, 400 = INVALIDE.</summary>
     public string Category => StatusCode switch
     {
+        // Kept in sync with AccountTestRegistry.Categorize: suspended/suspicious/deleted => BAN.
+        200 when AccountState is not null && (
+            AccountState.Contains("SUSPEND", StringComparison.OrdinalIgnoreCase) ||
+            AccountState.Contains("SUSPICIOUS", StringComparison.OrdinalIgnoreCase) ||
+            AccountState.Contains("DELET", StringComparison.OrdinalIgnoreCase)) => "BAN",
         200 when string.Equals(AccountState, "ACTIVE", StringComparison.OrdinalIgnoreCase) => "VALIDE",
-        200 when string.Equals(AccountState, "SUSPICIOUS_LOGIN_REPORTED_BY_USER", StringComparison.OrdinalIgnoreCase) => "BAN",
         200 => "CUSTOM",
         400 => "INVALIDE",
         _ => ""

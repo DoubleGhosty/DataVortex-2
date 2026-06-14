@@ -226,13 +226,21 @@ public sealed class AccountTestRegistry : IAccountTestRegistry
             a.Credit, a.BirthDate, a.Message, a.TestedUtc, a.AccountState)
     };
 
-    /// <summary>Mirror of <c>CredentialEntry.Category</c>, computed at write time so the UI can filter in SQL.</summary>
+    /// <summary>Mirror of <c>CredentialEntry.Category</c> (keep both in sync), computed at write time so the UI
+    /// can filter in SQL. A suspended/suspicious/deleted state counts as BAN.</summary>
     public static string Categorize(int statusCode, string? accountState) => statusCode switch
     {
+        200 when IsBadState(accountState) => "BAN",
         200 when string.Equals(accountState, "ACTIVE", StringComparison.OrdinalIgnoreCase) => "VALIDE",
-        200 when string.Equals(accountState, "SUSPICIOUS_LOGIN_REPORTED_BY_USER", StringComparison.OrdinalIgnoreCase) => "BAN",
         200 => "CUSTOM",
         400 => "INVALIDE",
         _ => ""
     };
+
+    /// <summary>Account states that mean the account is no longer usable (suspended/suspicious/deleted).</summary>
+    public static bool IsBadState(string? state) =>
+        state is not null && (
+            state.Contains("SUSPEND", StringComparison.OrdinalIgnoreCase) ||
+            state.Contains("SUSPICIOUS", StringComparison.OrdinalIgnoreCase) ||
+            state.Contains("DELET", StringComparison.OrdinalIgnoreCase));
 }

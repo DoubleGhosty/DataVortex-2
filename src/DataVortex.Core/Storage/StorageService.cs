@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using DataVortex.Core.Abstractions;
 using DataVortex.Core.Models;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
 
 namespace DataVortex.Core.Storage;
 
@@ -22,10 +23,16 @@ public sealed class StorageService : IStorageService, IDisposable
 
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly string _connString;
+    // Single long-lived write connection reused by every write path (all serialised by _writeLock), so a
+    // high-throughput workload no longer opens a fresh connection + re-runs pragmas on every single row.
+    // Reads keep opening short-lived connections — WAL lets them run concurrently without blocking the writer.
+    private readonly SqliteConnection _writeConn;
+    private readonly ILogger? _log;
     public AppPaths Paths { get; }
 
-    public StorageService(AppPaths paths)
+    public StorageService(AppPaths paths, ILogger<StorageService>? log = null)
     {
+        _log = log;
         Paths = paths.EnsureCreated();
         var dbPath = Path.Combine(Paths.Root, "datavortex.db");
         _connString = new SqliteConnectionStringBuilder
@@ -34,6 +41,7 @@ public sealed class StorageService : IStorageService, IDisposable
             Mode = SqliteOpenMode.ReadWriteCreate
         }.ToString();
 
+        _writeConn = Open();
         Initialize();
         MigrateLegacyIfAny();
     }
@@ -52,8 +60,7 @@ public sealed class StorageService : IStorageService, IDisposable
 
     private void Initialize()
     {
-        using var conn = Open();
-        using var cmd = conn.CreateCommand();
+        using var cmd = _writeConn.CreateCommand();
         cmd.CommandText = @"
 PRAGMA journal_mode=WAL;
 CREATE TABLE IF NOT EXISTS records (
@@ -78,11 +85,7 @@ CREATE INDEX IF NOT EXISTS idx_accounts_email    ON accounts(Email);";
     public async Task SaveRecordAsync(FileRecord record, CancellationToken ct = default)
     {
         await _writeLock.WaitAsync(ct).ConfigureAwait(false);
-        try
-        {
-            using var conn = Open();
-            InsertRecord(conn, null, record);
-        }
+        try { InsertRecord(_writeConn, null, record); }
         finally { _writeLock.Release(); }
     }
 
@@ -144,9 +147,8 @@ VALUES ($id,$cid,$ct,$mid,$name,$size,$mime,$rec,$proc,$kind,$status,$err,$json)
         _writeLock.Wait();
         try
         {
-            using var conn = Open();
-            using var tx = conn.BeginTransaction();
-            using var cmd = conn.CreateCommand();
+            using var tx = _writeConn.BeginTransaction();
+            using var cmd = _writeConn.CreateCommand();
             cmd.Transaction = tx;
             cmd.CommandText = "INSERT OR IGNORE INTO dedup(Key) VALUES ($k);";
             var p = cmd.CreateParameter();
@@ -163,8 +165,7 @@ VALUES ($id,$cid,$ct,$mid,$name,$size,$mime,$rec,$proc,$kind,$status,$err,$json)
         _writeLock.Wait();
         try
         {
-            using var conn = Open();
-            using var cmd = conn.CreateCommand();
+            using var cmd = _writeConn.CreateCommand();
             cmd.CommandText = "DELETE FROM dedup;";
             cmd.ExecuteNonQuery();
         }
@@ -176,8 +177,7 @@ VALUES ($id,$cid,$ct,$mid,$name,$size,$mime,$rec,$proc,$kind,$status,$err,$json)
         _writeLock.Wait();
         try
         {
-            using var conn = Open();
-            using var cmd = conn.CreateCommand();
+            using var cmd = _writeConn.CreateCommand();
             cmd.CommandText = @"INSERT OR REPLACE INTO accounts
 (Key, Email, Password, Url, Success, StatusCode, AccountState, Category, Credit, BirthDate, Message, TestedUtc, AccessToken, RefreshToken)
 VALUES ($k,$e,$p,$u,$s,$sc,$st,$cat,$cr,$bd,$m,$t,$at,$rt);";
@@ -396,36 +396,52 @@ VALUES ($k,$e,$p,$u,$s,$sc,$st,$cat,$cr,$bd,$m,$t,$at,$rt);";
         }
     }
 
-    /// <summary>One-time import of legacy <c>metadata/*.json</c> records and the old <c>dedup.keys</c> file.</summary>
+    /// <summary>One-time import of legacy <c>metadata/*.json</c> records and the old <c>dedup.keys</c> file.
+    /// Records are imported in batches (committing periodically) so a very large metadata folder never builds
+    /// one giant transaction, and progress is logged.</summary>
     private void MigrateLegacyIfAny()
     {
         try
         {
-            bool recordsEmpty;
-            using (var conn = Open())
-            using (var cmd = conn.CreateCommand())
+            long recordCount;
+            using (var cmd = _writeConn.CreateCommand())
             {
                 cmd.CommandText = "SELECT COUNT(*) FROM records;";
-                recordsEmpty = Convert.ToInt64(cmd.ExecuteScalar()) == 0;
+                recordCount = Convert.ToInt64(cmd.ExecuteScalar());
             }
 
-            if (recordsEmpty && Directory.Exists(Paths.Metadata))
+            if (recordCount == 0 && Directory.Exists(Paths.Metadata))
             {
                 var files = Directory.EnumerateFiles(Paths.Metadata, "*.json").ToList();
                 if (files.Count > 0)
                 {
-                    using var conn = Open();
-                    using var tx = conn.BeginTransaction();
-                    foreach (var f in files)
+                    _log?.LogInformation("Migrating {Count} legacy metadata record(s) into SQLite…", files.Count);
+                    const int batch = 2000;
+                    int imported = 0;
+
+                    var tx = _writeConn.BeginTransaction();
+                    try
                     {
-                        try
+                        for (int i = 0; i < files.Count; i++)
                         {
-                            var r = JsonSerializer.Deserialize<FileRecord>(File.ReadAllText(f), Json);
-                            if (r is not null) InsertRecord(conn, tx, r);
+                            try
+                            {
+                                var r = JsonSerializer.Deserialize<FileRecord>(File.ReadAllText(files[i]), Json);
+                                if (r is not null) { InsertRecord(_writeConn, tx, r); imported++; }
+                            }
+                            catch { /* skip bad file */ }
+
+                            if ((i + 1) % batch == 0)
+                            {
+                                tx.Commit(); tx.Dispose();
+                                _log?.LogInformation("  …migrated {Done}/{Total} record(s)", i + 1, files.Count);
+                                tx = _writeConn.BeginTransaction();
+                            }
                         }
-                        catch { /* skip bad file */ }
+                        tx.Commit();
                     }
-                    tx.Commit();
+                    finally { tx.Dispose(); }
+                    _log?.LogInformation("Legacy metadata migration done: {Imported} record(s) imported.", imported);
                 }
             }
 
@@ -439,8 +455,12 @@ VALUES ($k,$e,$p,$u,$s,$sc,$st,$cat,$cr,$bd,$m,$t,$at,$rt);";
                 try { File.Move(dedupFile, dedupFile + ".migrated", overwrite: true); } catch { }
             }
         }
-        catch { /* best-effort migration */ }
+        catch (Exception ex) { _log?.LogWarning(ex, "Legacy migration failed"); }
     }
 
-    public void Dispose() => SqliteConnection.ClearAllPools();
+    public void Dispose()
+    {
+        try { _writeConn.Dispose(); } catch { /* already closed */ }
+        SqliteConnection.ClearAllPools();
+    }
 }

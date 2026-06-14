@@ -20,9 +20,18 @@ public sealed class SignInResult
 public sealed class MeResult
 {
     public bool Success { get; init; }
+    public int StatusCode { get; init; }
     public decimal? DomainsCreditRemaining { get; init; }
     public string? BirthDate { get; init; } // expected format: yyyy-MM-dd
     public string? Raw { get; init; }
+}
+
+/// <summary>Outcome of a refresh-token call: the new access token (when granted) and the HTTP status, so the
+/// caller can tell "session still valid" (200) from "token revoked / account restricted" (401/403).</summary>
+public sealed class RefreshResult
+{
+    public string? AccessToken { get; init; }
+    public int StatusCode { get; init; }
 }
 
 public sealed class PasscultureClient
@@ -132,7 +141,7 @@ public sealed class PasscultureClient
     /// <summary>Mints a fresh access token from a (long-lived) refresh token — <b>no captcha required</b>.
     /// Used to re-read <c>/me</c> for accounts whose credit was never captured. Returns null on failure
     /// (e.g. the refresh token has expired, ~31 days).</summary>
-    public async Task<string?> RefreshAccessTokenAsync(string refreshToken, CancellationToken ct = default)
+    public async Task<RefreshResult> RefreshAccessTokenAsync(string refreshToken, CancellationToken ct = default)
     {
         try
         {
@@ -141,11 +150,15 @@ public sealed class PasscultureClient
             var http = _pool.Next();
             using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
             var s = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            if (!resp.IsSuccessStatusCode) return null;
-            using var doc = JsonDocument.Parse(s);
-            return doc.RootElement.TryGetProperty("accessToken", out var a) ? a.GetString() : null;
+            string? token = null;
+            if (resp.IsSuccessStatusCode)
+            {
+                try { using var doc = JsonDocument.Parse(s); if (doc.RootElement.TryGetProperty("accessToken", out var a)) token = a.GetString(); }
+                catch { /* unparseable body */ }
+            }
+            return new RefreshResult { AccessToken = token, StatusCode = (int)resp.StatusCode };
         }
-        catch { return null; }
+        catch { return new RefreshResult { StatusCode = 0 }; }
     }
 
     public async Task<MeResult> GetMeAsync(string accessToken, CancellationToken ct = default)
@@ -168,11 +181,11 @@ public sealed class PasscultureClient
                     if (rem.TryGetDecimal(out var d)) credit = d;
                 }
                 if (root.TryGetProperty("birthDate", out var bd)) birth = bd.GetString();
-                return new MeResult { Success = resp.IsSuccessStatusCode, DomainsCreditRemaining = credit, BirthDate = birth, Raw = s };
+                return new MeResult { Success = resp.IsSuccessStatusCode, StatusCode = (int)resp.StatusCode, DomainsCreditRemaining = credit, BirthDate = birth, Raw = s };
             }
             catch
             {
-                return new MeResult { Success = resp.IsSuccessStatusCode, Raw = s };
+                return new MeResult { Success = resp.IsSuccessStatusCode, StatusCode = (int)resp.StatusCode, Raw = s };
             }
         }
         catch (Exception ex)

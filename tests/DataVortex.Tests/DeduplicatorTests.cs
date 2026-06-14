@@ -10,11 +10,13 @@ namespace DataVortex.Tests;
 public sealed class DeduplicatorTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "dvtest_" + Guid.NewGuid().ToString("N"));
+    private readonly List<StorageService> _stores = new();
 
     private DownloadDeduplicator NewDedup()
     {
         var paths = new AppPaths(_dir).EnsureCreated();
         var storage = new StorageService(paths);
+        _stores.Add(storage);
         return new DownloadDeduplicator(storage, NullLogger<DownloadDeduplicator>.Instance);
     }
 
@@ -65,6 +67,7 @@ public sealed class DeduplicatorTests : IDisposable
 
     public void Dispose()
     {
+        foreach (var s in _stores) { try { s.Dispose(); } catch { /* ignore */ } }
         SqliteConnection.ClearAllPools(); // release the SQLite file handles before deleting the temp dir
         try { Directory.Delete(_dir, recursive: true); } catch { /* best-effort */ }
     }

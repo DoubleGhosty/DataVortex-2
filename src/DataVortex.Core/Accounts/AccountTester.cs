@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using DataVortex.Core.Abstractions;
 using DataVortex.Core.Models;
 using DataVortex.Core.Passculture;
@@ -89,13 +91,18 @@ public static class AccountTester
                     string? birth = null;
                     if (success && signin.AccessToken is not null)
                     {
-                        try
+                        // /me is best-effort but transient failures used to leave a valid account with a null
+                        // credit forever, so retry it a few times before giving up.
+                        for (int meTry = 0; meTry < 3; meTry++)
                         {
-                            var me = await passClient.GetMeAsync(signin.AccessToken, ct).ConfigureAwait(false);
-                            credit = me.DomainsCreditRemaining;
-                            birth = me.BirthDate;
+                            try
+                            {
+                                var me = await passClient.GetMeAsync(signin.AccessToken, ct).ConfigureAwait(false);
+                                if (me.Success) { credit = me.DomainsCreditRemaining; birth = me.BirthDate; break; }
+                            }
+                            catch { /* transient */ }
+                            if (meTry < 2) await Task.Delay(TimeSpan.FromSeconds(1 + meTry), ct).ConfigureAwait(false);
                         }
-                        catch { /* credit/birth are best-effort */ }
                     }
 
                     _log?.LogInformation("Check {Email}: ← HTTP {Code} → {Verdict}{Credit}",
@@ -136,29 +143,76 @@ public static class AccountTester
         }
     }
 
-    /// <summary>Re-fetches credit + birth date for an already-tested account by reusing its stored tokens —
-    /// no captcha, no sign-in. Mints a fresh access token from the refresh token, then reads <c>/me</c>, and
-    /// persists the updated outcome. Returns whether the account was updated and whether a credit was obtained.</summary>
-    public static async Task<(bool updated, bool gotCredit)> RefreshCreditAsync(
+    /// <summary>Re-checks an already-tested account by reusing its stored tokens — no captcha, no sign-in. It
+    /// re-verifies the <b>status</b> (an account may have gone ACTIVE → SUSPENDED) and refreshes credit + birth
+    /// date. Mints a fresh access token from the refresh token; a rejection while the refresh token has NOT yet
+    /// expired, or a <c>/me</c> 401/403, is treated as a suspension. Transient failures leave the account
+    /// untouched (retryable later). Returns whether it was updated, whether a credit was read, and whether it
+    /// was downgraded to suspended.</summary>
+    public static async Task<(bool updated, bool gotCredit, bool suspended)> RefreshCreditAsync(
         PasscultureClient passClient, IAccountTestRegistry registry, AccountRecord account, CancellationToken ct = default)
     {
-        // The stored access token is short-lived (~15 min), so refresh it from the long-lived refresh token first.
-        var access = !string.IsNullOrEmpty(account.RefreshToken)
-            ? await passClient.RefreshAccessTokenAsync(account.RefreshToken!, ct).ConfigureAwait(false) ?? account.AccessToken
-            : account.AccessToken;
-        if (string.IsNullOrEmpty(access)) return (false, false);
+        if (string.IsNullOrEmpty(account.RefreshToken)) return (false, false, false);
+
+        var refresh = await passClient.RefreshAccessTokenAsync(account.RefreshToken!, ct).ConfigureAwait(false);
+
+        // Refresh rejected: if the token has NOT expired yet, the session was revoked → very likely a
+        // suspension. If it simply expired (~31 days), we can't tell without a fresh sign-in → leave it.
+        if (refresh.StatusCode is 401 or 403)
+        {
+            var exp = JwtExpiry(account.RefreshToken);
+            if (exp is null || exp <= DateTime.UtcNow) return (false, false, false);
+            Persist(registry, account, account.AccessToken, null, null, "SUSPENDED");
+            _log?.LogInformation("Recheck {Email}: refresh rejeté HTTP {Code}, token non expiré → SUSPENDED", account.Email, refresh.StatusCode);
+            return (true, false, true);
+        }
+
+        var access = refresh.AccessToken ?? account.AccessToken;
+        if (string.IsNullOrEmpty(access)) return (false, false, false); // non-auth failure (5xx/0) → retry later
 
         MeResult me;
         try { me = await passClient.GetMeAsync(access!, ct).ConfigureAwait(false); }
-        catch { return (false, false); }
-        if (!me.Success) return (false, false); // transient failure → leave it for a later refresh
+        catch { return (false, false, false); }
 
+        if (me.StatusCode is 401 or 403)
+        {
+            Persist(registry, account, access, null, null, "SUSPENDED");
+            _log?.LogInformation("Recheck {Email}: /me HTTP {Code} → SUSPENDED", account.Email, me.StatusCode);
+            return (true, false, true);
+        }
+        if (!me.Success) return (false, false, false); // transient (5xx/0) → retry later
+
+        // Still reachable: refresh credit + birth, and KEEP the original state (never promote a CUSTOM to VALIDE).
+        Persist(registry, account, access, me.DomainsCreditRemaining, me.BirthDate, account.AccountState);
+        _log?.LogInformation("Recheck {Email}: actif, crédit={Credit}", account.Email, me.DomainsCreditRemaining);
+        return (true, me.DomainsCreditRemaining is not null, false);
+    }
+
+    private static void Persist(IAccountTestRegistry registry, AccountRecord a, string? access,
+        decimal? credit, string? birth, string? accountState)
+    {
         var result = new AccountTestResult(
-            account.Success, account.StatusCode, access, account.RefreshToken,
-            me.DomainsCreditRemaining, me.BirthDate, account.Message, DateTime.UtcNow, account.AccountState);
-        registry.Complete(account.Email, account.Password, result);
-        _log?.LogInformation("Refresh {Email}: crédit={Credit}", account.Email, me.DomainsCreditRemaining);
-        return (true, me.DomainsCreditRemaining is not null);
+            a.Success, a.StatusCode, access, a.RefreshToken,
+            credit ?? a.Credit, birth ?? a.BirthDate, a.Message, DateTime.UtcNow, accountState);
+        registry.Complete(a.Email, a.Password, result);
+    }
+
+    /// <summary>Reads the <c>exp</c> claim (UTC) of a JWT without validating its signature; null if unreadable.</summary>
+    private static DateTime? JwtExpiry(string? jwt)
+    {
+        try
+        {
+            var parts = jwt?.Split('.');
+            if (parts is not { Length: 3 }) return null;
+            var payload = parts[1].Replace('-', '+').Replace('_', '/');
+            payload += (payload.Length % 4) switch { 2 => "==", 3 => "=", _ => "" };
+            var json = Encoding.UTF8.GetString(Convert.FromBase64String(payload));
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("exp", out var e) && e.TryGetInt64(out var s))
+                return DateTimeOffset.FromUnixTimeSeconds(s).UtcDateTime;
+        }
+        catch { /* not a readable JWT */ }
+        return null;
     }
 
     /// <summary>Folds a registry outcome back into a <see cref="CredentialEntry"/> (for the per-file record).</summary>
