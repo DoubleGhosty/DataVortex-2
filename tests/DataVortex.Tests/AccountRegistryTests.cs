@@ -108,6 +108,23 @@ public sealed class AccountRegistryTests : IDisposable
         Assert.Single(storage.SearchAccounts(null, new[] { "VALIDE" }));
     }
 
+    [Fact]
+    public void Reset_forgets_all_accounts_so_they_can_be_retested()
+    {
+        var (paths, storage) = New();
+        var reg = new AccountTestRegistry(paths, storage, NullLogger<AccountTestRegistry>.Instance);
+        reg.TryReserve("a@x", "p", "u");
+        reg.Complete("a@x", "p", new AccountTestResult(true, 200, AccountState: "ACTIVE"));
+        Assert.True(reg.TryGet("a@x", "p", out _));
+        Assert.Single(storage.LoadAccounts());
+
+        reg.Reset();
+
+        Assert.False(reg.TryGet("a@x", "p", out _));      // forgotten in memory
+        Assert.Empty(storage.LoadAccounts());             // and in storage
+        Assert.True(reg.TryReserve("a@x", "p", "u"));     // so it can be re-tested from scratch
+    }
+
     [Theory]
     // Genuine bad-password 400 → definitive (INVALIDE)
     [InlineData("{\"general\":[\"Identifiant ou Mot de passe incorrect\"]}", true)]

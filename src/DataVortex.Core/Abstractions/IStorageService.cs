@@ -58,4 +58,6 @@ public interface IStorageService
     /// <summary>Successful accounts whose credit was never captured but that still hold a refresh token —
     /// the credit can be re-fetched without a captcha.</summary>
     IReadOnlyList<AccountRecord> LoadAccountsNeedingCredit();
+    /// <summary>Deletes every stored account (used by a full re-test from scratch).</summary>
+    void ClearAccounts();
 }

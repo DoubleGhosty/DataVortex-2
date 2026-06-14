@@ -55,6 +55,9 @@ public interface IAccountTestRegistry
     /// <summary>Deduplicated snapshot of every known (tested) account, for display.</summary>
     IReadOnlyList<AccountEntry> Snapshot();
 
+    /// <summary>Forgets every tested account (memory + storage) so they can all be re-tested from scratch.</summary>
+    void Reset();
+
     int Count { get; }
 }
 
@@ -142,6 +145,13 @@ public sealed class AccountTestRegistry : IAccountTestRegistry
             return _tested.Values
                 .Select(e => new AccountEntry { Email = e.Email, Password = e.Password, Url = e.Url, Result = e.Result })
                 .ToList();
+    }
+
+    public void Reset()
+    {
+        lock (_gate) { _tested.Clear(); _reserved.Clear(); }
+        _storage.ClearAccounts();
+        _log.LogInformation("Account registry reset — every account will be re-tested from scratch");
     }
 
     private void Load()

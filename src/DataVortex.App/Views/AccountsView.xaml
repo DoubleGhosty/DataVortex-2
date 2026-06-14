@@ -34,6 +34,9 @@
                                    Foreground="{DynamicResource Warning}"/>
                     </Border>
                     <Button Content="Importer combolist" Command="{Binding ImportComboListCommand}" DockPanel.Dock="Right"/>
+                    <Button Content="⚠ RE-TESTER TOUT" Style="{StaticResource Danger}" Command="{Binding RetestAllAccountsCommand}"
+                            DockPanel.Dock="Right" Margin="0,0,16,0"
+                            ToolTip="Supprime tous les résultats et reteste chaque compte via une vraie connexion (1 captcha/compte). Irréversible."/>
                     <Button Content="Stop" Style="{StaticResource Ghost}" Command="{Binding StopCheckerCommand}"
                             DockPanel.Dock="Right" Margin="0,0,8,0" IsEnabled="{Binding IsChecking}"/>
                     <Button Content="Rafraîchir crédits" Style="{StaticResource Ghost}" Command="{Binding RefreshCreditsCommand}"

@@ -283,6 +283,55 @@ public sealed partial class AccountsViewModel : ObservableObject
         }, ct);
     });
 
+    /// <summary>DANGER: forgets every stored account and re-tests them all from scratch via a real sign-in
+    /// (NOT the refresh token) — one captcha per account. The grid is emptied and re-filled as results land.</summary>
+    [RelayCommand]
+    private async Task RetestAllAccountsAsync()
+    {
+        var creds = await Task.Run(() => _storage.LoadAccounts()
+            .Where(a => !string.IsNullOrWhiteSpace(a.Email) || !string.IsNullOrWhiteSpace(a.Password))
+            .Select(a => new CredentialEntry(a.Url, a.Email, a.Password, 0, ""))
+            .ToList());
+
+        if (creds.Count == 0) { StatusText = "Aucun compte enregistré à retester."; return; }
+
+        if (!_dialogs.Confirm(
+                $"⚠️ ATTENTION — re-test COMPLET de {creds.Count} compte(s).\n\n" +
+                "• Tous les résultats enregistrés vont être SUPPRIMÉS puis recalculés.\n" +
+                "• Chaque compte est retesté via une VRAIE connexion (PAS le refresh token).\n" +
+                "• Chaque test consomme un CAPTCHA (coût réel) et prend du temps.\n" +
+                "• Le panneau est vidé puis re-rempli au fur et à mesure.\n\n" +
+                "Action irréversible. Continuer ?",
+                "Re-tester TOUS les comptes"))
+        {
+            StatusText = "Re-test annulé.";
+            return;
+        }
+
+        await RunCheckerAsync(async ct =>
+        {
+            // Wipe all prior knowledge so every account is genuinely re-sent (not skipped as 'already known').
+            _accounts.Reset();
+            _ui.Post(() => { Accounts.Clear(); StatusText = $"Re-test complet de {creds.Count} compte(s)…"; });
+
+            await Task.Run(async () =>
+            {
+                int done = 0;
+                await Parallel.ForEachAsync(creds,
+                    new ParallelOptions { MaxDegreeOfParallelism = 10, CancellationToken = ct },
+                    async (c, token) =>
+                    {
+                        await AccountTester.TestOnceAsync(_passClient, _accounts, c, token);
+                        int d = Interlocked.Increment(ref done);
+                        if (d % 5 == 0 || d == creds.Count)
+                            _ui.Post(() => { StatusText = $"Re-test : {d}/{creds.Count}"; Refresh(); });
+                    });
+
+                _ui.Post(() => { StatusText = $"Re-test complet terminé : {creds.Count} compte(s)."; Refresh(); });
+            }, ct);
+        });
+    }
+
     /// <summary>Imports a mail:pass combolist (.txt) and sends every unique, not-yet-known account to the
     /// checker (one captcha each). Reuses the same atomic registry + tester as the rest of the app, so
     /// duplicates across the combolist, saved records and previous runs are never re-tested.</summary>

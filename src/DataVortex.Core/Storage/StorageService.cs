@@ -234,6 +234,18 @@ VALUES ($k,$e,$p,$u,$s,$sc,$st,$cat,$cr,$bd,$m,$t,$at,$rt);";
         return list;
     }
 
+    public void ClearAccounts()
+    {
+        _writeLock.Wait();
+        try
+        {
+            using var cmd = _writeConn.CreateCommand();
+            cmd.CommandText = "DELETE FROM accounts;";
+            cmd.ExecuteNonQuery();
+        }
+        finally { _writeLock.Release(); }
+    }
+
     public IReadOnlyList<AccountRecord> LoadAccountsNeedingCredit()
         => QueryAccounts(
             $"SELECT {AccountColumns} FROM accounts " +
