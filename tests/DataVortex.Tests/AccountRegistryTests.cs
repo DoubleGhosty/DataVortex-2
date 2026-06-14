@@ -109,6 +109,18 @@ public sealed class AccountRegistryTests : IDisposable
     }
 
     [Theory]
+    // Genuine bad-password 400 → definitive (INVALIDE)
+    [InlineData("{\"general\":[\"Identifiant ou Mot de passe incorrect\"]}", true)]
+    [InlineData("{\"general\":[\"identifiant ou mot de passe incorrect\"]}", true)]
+    // 400 from a low captcha trust score (or anything else) → NOT a bad password → must be retried
+    [InlineData("{\"token\":[\"The captcha is invalid or its trust score is too low\"]}", false)]
+    [InlineData("{\"code\":\"NETWORK_REQUEST_FAILED\"}", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void IsWrongPassword_only_true_for_a_real_password_rejection(string? raw, bool expected)
+        => Assert.Equal(expected, AccountTester.IsWrongPassword(raw));
+
+    [Theory]
     [InlineData(200, "ACTIVE", "VALIDE")]
     [InlineData(200, "SUSPENDED", "BAN")]
     [InlineData(200, "SUSPENDED_UPON_USER_REQUEST", "BAN")]

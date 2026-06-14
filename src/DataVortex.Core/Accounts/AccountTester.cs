@@ -83,8 +83,10 @@ public static class AccountTester
                 _log?.LogInformation("Check {Email}: POST signin → backend Passculture (essai {Attempt})", cred.Username, attempt + 1);
                 var signin = await passClient.SignInAsync(cred.Username ?? "", cred.Password ?? "", captcha, ct).ConfigureAwait(false);
 
-                // Definitive outcomes only: 200 = valid account, 400 = wrong password. Anything else → retry.
-                if (signin.StatusCode == 200 || signin.StatusCode == 400)
+                // Definitive outcomes only: 200 = valid account, or a 400 whose body says the password is wrong.
+                // A 400 caused by a too-low captcha trust score is NOT definitive → fall through and retry with
+                // a fresh captcha. Anything else (429 / 5xx / 0 / …) also retries.
+                if (signin.StatusCode == 200 || (signin.StatusCode == 400 && IsWrongPassword(signin.Raw)))
                 {
                     var success = signin.StatusCode == 200;
                     decimal? credit = null;
@@ -195,6 +197,16 @@ public static class AccountTester
             a.Success, a.StatusCode, access, a.RefreshToken,
             credit ?? a.Credit, birth ?? a.BirthDate, a.Message, DateTime.UtcNow, accountState);
         registry.Complete(a.Email, a.Password, result);
+    }
+
+    /// <summary>True only when a 400 sign-in body is a genuine bad-password rejection, e.g.
+    /// <c>{"general":["Identifiant ou Mot de passe incorrect"]}</c>. Other 400s (notably a too-low captcha
+    /// trust score) must NOT be treated as definitive — the caller retries them with a fresh captcha.</summary>
+    public static bool IsWrongPassword(string? raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return false;
+        return raw.Contains("mot de passe incorrect", StringComparison.OrdinalIgnoreCase)
+            || raw.Contains("identifiant ou mot de passe", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Reads the <c>exp</c> claim (UTC) of a JWT without validating its signature; null if unreadable.</summary>
