@@ -129,7 +129,8 @@ public partial class App : Application
             var pool = new DataVortex.Core.Passculture.ProxyPool(
                 cfg.Proxies, new Uri("https://backend.passculture.app/"), cfg.ProxyEnabled);
             return new DataVortex.Core.Passculture.PasscultureClient(
-                pool, sp.GetService<DataVortex.Core.Passculture.ICaptchaSolver>());
+                pool, sp.GetService<DataVortex.Core.Passculture.ICaptchaSolver>(),
+                sp.GetRequiredService<ILogger<DataVortex.Core.Passculture.PasscultureClient>>());
         });
 
 

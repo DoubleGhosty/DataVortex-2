@@ -89,7 +89,8 @@ public sealed class PasscultureClient
             _log.LogInformation("→ Passculture POST signin pour {Email}", identifier);
             using var resp = await http.PostAsync("native/v1/signin", content, ct).ConfigureAwait(false);
             var s = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            _log.LogDebug("Signin response: {Response}", s);
+            // Debug aid: show the raw login response body (HTTP code + email) in the live log.
+            _log.LogInformation("Signin response [{Email}] HTTP {Code}: {Response}", identifier, (int)resp.StatusCode, s);
             try
             {
                 using var doc = JsonDocument.Parse(s);
