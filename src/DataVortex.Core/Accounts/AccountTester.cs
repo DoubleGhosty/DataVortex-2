@@ -115,7 +115,7 @@ public static class AccountTester
                     var state = verdict switch
                     {
                         SignInVerdict.Valid => signin.AccountState,
-                        SignInVerdict.Custom => Custom400Code(signin.Raw),
+                        SignInVerdict.Definitive => Definitive400Code(signin.Raw),
                         _ => null
                     };
 
@@ -125,7 +125,7 @@ public static class AccountTester
                         {
                             SignInVerdict.Valid => "VALIDE",
                             SignInVerdict.WrongPassword => "mot de passe incorrect",
-                            _ => state ?? "CUSTOM"
+                            _ => state ?? "?"
                         },
                         success ? $" (crédit={credit})" : "");
 
@@ -226,17 +226,19 @@ public static class AccountTester
             || raw.Contains("identifiant ou mot de passe", StringComparison.OrdinalIgnoreCase);
     }
 
-    private enum SignInVerdict { Valid, WrongPassword, Custom, Retry }
+    private enum SignInVerdict { Valid, WrongPassword, Definitive, Retry }
 
-    /// <summary>Definitive, non-valid 400 reason codes we keep as CUSTOM instead of retrying forever.</summary>
-    private static readonly string[] Custom400Codes = { "EMAIL_NOT_VALIDATED" };
+    /// <summary>Recognised definitive (non-valid) 400 reason codes — stored instead of retried forever. The
+    /// final category is decided by <see cref="AccountTestRegistry.Categorize"/> from the code stored as the
+    /// account state (e.g. ACCOUNT_DELETED → BAN, EMAIL_NOT_VALIDATED → CUSTOM).</summary>
+    private static readonly string[] Definitive400Codes = { "EMAIL_NOT_VALIDATED", "ACCOUNT_DELETED" };
 
-    /// <summary>Returns the matched custom-400 code (e.g. <c>EMAIL_NOT_VALIDATED</c>) when the body is a
-    /// recognised definitive 400 to keep as CUSTOM, otherwise null (→ retry).</summary>
-    public static string? Custom400Code(string? raw)
+    /// <summary>Returns the matched definitive-400 code when the body is a recognised non-retryable 400,
+    /// otherwise null (→ retry).</summary>
+    public static string? Definitive400Code(string? raw)
     {
         if (string.IsNullOrEmpty(raw)) return null;
-        foreach (var code in Custom400Codes)
+        foreach (var code in Definitive400Codes)
             if (raw.Contains(code, StringComparison.OrdinalIgnoreCase)) return code;
         return null;
     }
@@ -244,7 +246,7 @@ public static class AccountTester
     private static SignInVerdict Classify400(string? raw)
     {
         if (IsWrongPassword(raw)) return SignInVerdict.WrongPassword;
-        return Custom400Code(raw) is not null ? SignInVerdict.Custom : SignInVerdict.Retry;
+        return Definitive400Code(raw) is not null ? SignInVerdict.Definitive : SignInVerdict.Retry;
     }
 
     /// <summary>Reads the <c>exp</c> claim (UTC) of a JWT without validating its signature; null if unreadable.</summary>
