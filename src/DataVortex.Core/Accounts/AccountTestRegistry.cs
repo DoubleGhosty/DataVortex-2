@@ -52,9 +52,6 @@ public interface IAccountTestRegistry
     /// <summary>Returns the stored outcome if the account has already been tested.</summary>
     bool TryGet(string? email, string? password, out AccountTestResult result);
 
-    /// <summary>Deduplicated snapshot of every known (tested) account, for display.</summary>
-    IReadOnlyList<AccountEntry> Snapshot();
-
     /// <summary>Forgets every tested account (memory + storage) so they can all be re-tested from scratch.</summary>
     void Reset();
 
@@ -137,14 +134,6 @@ public sealed class AccountTestRegistry : IAccountTestRegistry
             result = new AccountTestResult(false, 0);
             return false;
         }
-    }
-
-    public IReadOnlyList<AccountEntry> Snapshot()
-    {
-        lock (_gate)
-            return _tested.Values
-                .Select(e => new AccountEntry { Email = e.Email, Password = e.Password, Url = e.Url, Result = e.Result })
-                .ToList();
     }
 
     public void Reset()

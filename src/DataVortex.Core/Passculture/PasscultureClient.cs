@@ -12,7 +12,6 @@ public sealed class SignInResult
     public string? AccessToken { get; init; }
     public string? RefreshToken { get; init; }
     public string? AccountState { get; init; }
-    public string? StatusType { get; init; }
     public int StatusCode { get; init; }
     public string? Raw { get; init; }
 }
@@ -24,7 +23,6 @@ public sealed class MeResult
     public decimal? DomainsCreditRemaining { get; init; }
     public string? BirthDate { get; init; } // expected format: yyyy-MM-dd
     public string? StatusType { get; init; } // status.statusType e.g. "non_eligible", "ex_beneficiary"
-    public string? Raw { get; init; }
 }
 
 /// <summary>Outcome of a refresh-token call: the new access token (when granted) and the HTTP status, so the
@@ -99,18 +97,13 @@ public sealed class PasscultureClient
                 var root = doc.RootElement;
                 string? access = null;
                 string? accountState = null;
-                string? statusType = null;
                 string? refresh = null;
                 if (root.TryGetProperty("accessToken", out var a)) access = a.GetString();
                 if (root.TryGetProperty("refreshToken", out var rt)) refresh = rt.GetString();
                 if (root.TryGetProperty("accountState", out var asv)) accountState = asv.GetString();
-                if (root.TryGetProperty("status", out var st) && st.ValueKind == JsonValueKind.Object)
-                {
-                    if (st.TryGetProperty("statusType", out var stt)) statusType = stt.GetString();
-                }
                 _log.LogInformation("← Passculture signin {Email}: HTTP {Code} success={Success} token={HasToken} state={State}",
                     identifier, (int)resp.StatusCode, resp.IsSuccessStatusCode && access is not null, access is not null, accountState);
-                return new SignInResult { Success = resp.IsSuccessStatusCode && access is not null, AccessToken = access, RefreshToken = refresh, AccountState = accountState, StatusType = statusType, StatusCode = (int)resp.StatusCode, Raw = s };
+                return new SignInResult { Success = resp.IsSuccessStatusCode && access is not null, AccessToken = access, RefreshToken = refresh, AccountState = accountState, StatusCode = (int)resp.StatusCode, Raw = s };
             }
             catch
             {
@@ -194,16 +187,17 @@ public sealed class PasscultureClient
                 if (root.TryGetProperty("status", out var st) && st.ValueKind == JsonValueKind.Object
                     && st.TryGetProperty("statusType", out var stt))
                     statusType = stt.GetString();
-                return new MeResult { Success = resp.IsSuccessStatusCode, StatusCode = (int)resp.StatusCode, DomainsCreditRemaining = credit, BirthDate = birth, StatusType = statusType, Raw = s };
+                return new MeResult { Success = resp.IsSuccessStatusCode, StatusCode = (int)resp.StatusCode, DomainsCreditRemaining = credit, BirthDate = birth, StatusType = statusType };
             }
             catch
             {
-                return new MeResult { Success = resp.IsSuccessStatusCode, StatusCode = (int)resp.StatusCode, Raw = s };
+                return new MeResult { Success = resp.IsSuccessStatusCode, StatusCode = (int)resp.StatusCode };
             }
         }
         catch (Exception ex)
         {
-            return new MeResult { Success = false, Raw = ex.Message };
+            _log.LogWarning(ex, "GetMe exception: {Error}", ex.Message);
+            return new MeResult { Success = false };
         }
     }
 }

@@ -182,9 +182,6 @@ public sealed partial class AccountsViewModel : ObservableObject
         });
     }
 
-    private string _captchaToken = "";
-    public string CaptchaToken { get => _captchaToken; set => SetProperty(ref _captchaToken, value); }
-
     private string _statusText = "";
     public string StatusText { get => _statusText; set => SetProperty(ref _statusText, value); }
 
