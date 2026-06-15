@@ -83,12 +83,15 @@ public static class AccountTester
                 _log?.LogInformation("Check {Email}: POST signin → backend Passculture (essai {Attempt})", cred.Username, attempt + 1);
                 var signin = await passClient.SignInAsync(cred.Username ?? "", cred.Password ?? "", captcha, ct).ConfigureAwait(false);
 
-                // Definitive outcomes only: 200 = valid account, or a 400 whose body says the password is wrong.
-                // A 400 caused by a too-low captcha trust score is NOT definitive → fall through and retry with
-                // a fresh captcha. Anything else (429 / 5xx / 0 / …) also retries.
-                if (signin.StatusCode == 200 || (signin.StatusCode == 400 && IsWrongPassword(signin.Raw)))
+                // Classify the response. Definitive outcomes (valid, wrong password, or a recognised custom 400
+                // such as EMAIL_NOT_VALIDATED) are stored; everything else (429 / 5xx / 0 / low-trust 400) retries.
+                var verdict = signin.StatusCode == 200 ? SignInVerdict.Valid
+                            : signin.StatusCode == 400 ? Classify400(signin.Raw)
+                            : SignInVerdict.Retry;
+
+                if (verdict != SignInVerdict.Retry)
                 {
-                    var success = signin.StatusCode == 200;
+                    var success = verdict == SignInVerdict.Valid;
                     decimal? credit = null;
                     string? birth = null;
                     if (success && signin.AccessToken is not null)
@@ -107,14 +110,28 @@ public static class AccountTester
                         }
                     }
 
+                    // Valid keeps the backend accountState; a custom 400 carries its code so it categorises as
+                    // CUSTOM (e.g. EMAIL_NOT_VALIDATED); a wrong-password 400 carries none → INVALIDE.
+                    var state = verdict switch
+                    {
+                        SignInVerdict.Valid => signin.AccountState,
+                        SignInVerdict.Custom => Custom400Code(signin.Raw),
+                        _ => null
+                    };
+
                     _log?.LogInformation("Check {Email}: ← HTTP {Code} → {Verdict}{Credit}",
                         cred.Username, signin.StatusCode,
-                        success ? "VALIDE" : "mot de passe incorrect",
+                        verdict switch
+                        {
+                            SignInVerdict.Valid => "VALIDE",
+                            SignInVerdict.WrongPassword => "mot de passe incorrect",
+                            _ => state ?? "CUSTOM"
+                        },
                         success ? $" (crédit={credit})" : "");
 
                     var result = new AccountTestResult(
                         success, signin.StatusCode, signin.AccessToken, signin.RefreshToken,
-                        credit, birth, signin.Raw, DateTime.UtcNow, signin.AccountState);
+                        credit, birth, signin.Raw, DateTime.UtcNow, state);
                     registry.Complete(cred.Username, cred.Password, result);
                     return Apply(cred, result);
                 }
@@ -207,6 +224,27 @@ public static class AccountTester
         if (string.IsNullOrEmpty(raw)) return false;
         return raw.Contains("mot de passe incorrect", StringComparison.OrdinalIgnoreCase)
             || raw.Contains("identifiant ou mot de passe", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private enum SignInVerdict { Valid, WrongPassword, Custom, Retry }
+
+    /// <summary>Definitive, non-valid 400 reason codes we keep as CUSTOM instead of retrying forever.</summary>
+    private static readonly string[] Custom400Codes = { "EMAIL_NOT_VALIDATED" };
+
+    /// <summary>Returns the matched custom-400 code (e.g. <c>EMAIL_NOT_VALIDATED</c>) when the body is a
+    /// recognised definitive 400 to keep as CUSTOM, otherwise null (→ retry).</summary>
+    public static string? Custom400Code(string? raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return null;
+        foreach (var code in Custom400Codes)
+            if (raw.Contains(code, StringComparison.OrdinalIgnoreCase)) return code;
+        return null;
+    }
+
+    private static SignInVerdict Classify400(string? raw)
+    {
+        if (IsWrongPassword(raw)) return SignInVerdict.WrongPassword;
+        return Custom400Code(raw) is not null ? SignInVerdict.Custom : SignInVerdict.Retry;
     }
 
     /// <summary>Reads the <c>exp</c> claim (UTC) of a JWT without validating its signature; null if unreadable.</summary>

@@ -30,6 +30,7 @@ public sealed record CredentialEntry(
             AccountState.Contains("DELET", StringComparison.OrdinalIgnoreCase)) => "BAN",
         200 when string.Equals(AccountState, "ACTIVE", StringComparison.OrdinalIgnoreCase) => "VALIDE",
         200 => "CUSTOM",
+        400 when !string.IsNullOrEmpty(AccountState) => "CUSTOM", // 400 with a reason code (e.g. EMAIL_NOT_VALIDATED)
         400 => "INVALIDE",
         _ => ""
     };

@@ -243,6 +243,8 @@ public sealed class AccountTestRegistry : IAccountTestRegistry
         200 when IsBadState(accountState) => "BAN",
         200 when string.Equals(accountState, "ACTIVE", StringComparison.OrdinalIgnoreCase) => "VALIDE",
         200 => "CUSTOM",
+        // A 400 carrying a reason code (e.g. EMAIL_NOT_VALIDATED) is a definitive custom case, not a bad password.
+        400 when !string.IsNullOrEmpty(accountState) => "CUSTOM",
         400 => "INVALIDE",
         _ => ""
     };

@@ -144,9 +144,19 @@ public sealed class AccountRegistryTests : IDisposable
     [InlineData(200, "SUSPICIOUS_LOGIN_REPORTED_BY_USER", "BAN")]
     [InlineData(200, "DELETED", "BAN")]
     [InlineData(200, "SOMETHING_ELSE", "CUSTOM")]
-    [InlineData(400, null, "INVALIDE")]
+    [InlineData(400, null, "INVALIDE")]                       // bare 400 = wrong password
+    [InlineData(400, "EMAIL_NOT_VALIDATED", "CUSTOM")]        // 400 with a reason code = custom
     public void Categorize_maps_suspended_states_to_BAN(int code, string? state, string expected)
         => Assert.Equal(expected, AccountTestRegistry.Categorize(code, state));
+
+    [Theory]
+    [InlineData("{\"code\":\"EMAIL_NOT_VALIDATED\",\"general\":[\"L'email n'a pas été validé.\"]}", "EMAIL_NOT_VALIDATED")]
+    [InlineData("{\"general\":[\"Identifiant ou Mot de passe incorrect\"]}", null)] // wrong password is not a custom 400
+    [InlineData("{\"token\":[\"trust score too low\"]}", null)]                     // captcha trust → retry, not custom
+    [InlineData("", null)]
+    [InlineData(null, null)]
+    public void Custom400Code_detects_recognised_definitive_400s(string? raw, string? expected)
+        => Assert.Equal(expected, AccountTester.Custom400Code(raw));
 
     public void Dispose()
     {
