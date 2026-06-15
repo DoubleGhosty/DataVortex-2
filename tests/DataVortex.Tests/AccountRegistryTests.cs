@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using DataVortex.Core.Abstractions;
 using DataVortex.Core.Accounts;
 using DataVortex.Core.Models;
+using DataVortex.Core.Passculture;
 using DataVortex.Core.Storage;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -123,6 +124,24 @@ public sealed class AccountRegistryTests : IDisposable
         Assert.False(reg.TryGet("a@x", "p", out _));      // forgotten in memory
         Assert.Empty(storage.LoadAccounts());             // and in storage
         Assert.True(reg.TryReserve("a@x", "p", "u"));     // so it can be re-tested from scratch
+    }
+
+    [Theory]
+    [InlineData("stee")]            // truncated email
+    [InlineData("0644367428")]      // phone number
+    [InlineData("star wars")]       // scanner noise
+    [InlineData("")]                // empty
+    public async Task TestOnceAsync_skips_identifiers_without_an_at_sign(string username)
+    {
+        var (paths, storage) = New();
+        var reg = new AccountTestRegistry(paths, storage, NullLogger<AccountTestRegistry>.Instance);
+        var client = new PasscultureClient(new ProxyPool(null, new Uri("https://example.test/"), enabled: false));
+
+        var cred = new CredentialEntry(null, username, "Cocotier973@", 0, "");
+        var result = await AccountTester.TestOnceAsync(client, reg, cred);
+
+        Assert.False(result.Tested);          // never sent to the backend
+        Assert.Equal(0, reg.Count);           // never reserved / stored → no captcha spent
     }
 
     [Fact]

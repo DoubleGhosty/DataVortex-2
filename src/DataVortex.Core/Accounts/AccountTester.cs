@@ -48,7 +48,10 @@ public static class AccountTester
         PasscultureClient passClient, IAccountTestRegistry registry, CredentialEntry cred, CancellationToken ct = default)
     {
         if (cred.Tested) return cred;
-        if (string.IsNullOrWhiteSpace(cred.Username) && string.IsNullOrWhiteSpace(cred.Password)) return cred;
+        // passculture authenticates by email only — skip any identifier without '@' (scanner noise: truncated
+        // names, phone numbers, etc.) so no captcha is ever spent on something that can't possibly sign in.
+        if (string.IsNullOrWhiteSpace(cred.Username) || !cred.Username.Contains('@')) return cred;
+        if (string.IsNullOrWhiteSpace(cred.Password)) return cred;
 
         // Already known? reuse the stored outcome without touching the backend.
         if (registry.TryGet(cred.Username, cred.Password, out var known))
