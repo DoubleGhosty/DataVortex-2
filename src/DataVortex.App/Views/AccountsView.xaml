@@ -21,29 +21,41 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
                 <DockPanel Grid.Row="0" Margin="0,0,0,14" LastChildFill="False">
-                    <TextBlock Text="Passculture accounts found:" Style="{StaticResource Caption}" DockPanel.Dock="Left"
-                               VerticalAlignment="Center"/>
-                    <Border Style="{StaticResource StatusBadge}" DockPanel.Dock="Left" Margin="10,0,0,0">
-                        <TextBlock Text="{Binding AccountCount, StringFormat='{}{0} account(s)'}" FontSize="13" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource Accent}"/>
-                    </Border>
-                    <TextBlock Text="Captchas 2captcha :" Style="{StaticResource Caption}" DockPanel.Dock="Left"
-                               VerticalAlignment="Center" Margin="18,0,0,0"/>
-                    <Border Style="{StaticResource StatusBadge}" DockPanel.Dock="Left" Margin="10,0,0,0">
-                        <TextBlock Text="{Binding CaptchaRequests}" FontSize="13" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource Warning}"/>
-                    </Border>
-                    <Button Content="Importer combolist" Command="{Binding ImportComboListCommand}" DockPanel.Dock="Right"/>
-                    <Button Content="⚠ RE-TESTER TOUT" Style="{StaticResource Danger}" Command="{Binding RetestAllAccountsCommand}"
-                            DockPanel.Dock="Right" Margin="0,0,16,0"
-                            ToolTip="Supprime tous les résultats et reteste chaque compte via une vraie connexion (1 captcha/compte). Irréversible."/>
-                    <Button Content="Stop" Style="{StaticResource Ghost}" Command="{Binding StopCheckerCommand}"
-                            DockPanel.Dock="Right" Margin="0,0,8,0" IsEnabled="{Binding IsChecking}"/>
-                    <Button Content="Revérifier comptes" Style="{StaticResource Ghost}" Command="{Binding RefreshCreditsCommand}"
-                            DockPanel.Dock="Right" Margin="0,0,8,0"
-                            ToolTip="Revérifie crédit + statut (EXPIRE) + suspension de tous les comptes valides, via refresh token (0 captcha)."/>
-                    <Button Content="Tester les comptes" Style="{StaticResource Ghost}" Command="{Binding TestAccountsCommand}"
-                            DockPanel.Dock="Right" Margin="0,0,8,0"/>
+                    <!-- Left: live counters -->
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                        <TextBlock Text="Comptes :" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                        <Border Style="{StaticResource StatusBadge}" Margin="8,0,0,0">
+                            <TextBlock Text="{Binding AccountCount}" FontSize="13" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource Accent}"/>
+                        </Border>
+                        <TextBlock Text="Captchas :" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="18,0,0,0"/>
+                        <Border Style="{StaticResource StatusBadge}" Margin="8,0,0,0">
+                            <TextBlock Text="{Binding CaptchaRequests}" FontSize="13" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource Warning}"/>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Right: actions, grouped — [nouveaux tests (captcha)] | [revérification] | [stop] -->
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
+                        <TextBlock Text="Tester (captcha) :" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <Button Content="Archives" Style="{StaticResource Ghost}" Command="{Binding TestAccountsCommand}"
+                                Margin="0,0,8,0" ToolTip="Teste les comptes trouvés dans les archives/fichiers extraits (1 captcha par nouveau compte)."/>
+                        <Button Content="Combolist…" Command="{Binding ImportComboListCommand}"
+                                ToolTip="Importe un fichier .txt mail:pass et teste chaque ligne (1 captcha par nouveau compte)."/>
+
+                        <Border Width="1" Margin="14,2,14,2" Background="{DynamicResource Divider}"/>
+
+                        <Button Content="Revérifier (0 captcha)" Style="{StaticResource Ghost}" Command="{Binding RefreshCreditsCommand}"
+                                Margin="0,0,8,0"
+                                ToolTip="Revérifie tous les comptes non-INVALIDE (crédit, statut EXPIRE, faux BAN) via le refresh token, sans captcha."/>
+                        <Button Content="⚠ Tout retester" Style="{StaticResource Danger}" Command="{Binding RetestAllAccountsCommand}"
+                                ToolTip="DANGER : supprime tous les résultats et reteste chaque compte via une vraie connexion (1 captcha/compte). Irréversible."/>
+
+                        <Border Width="1" Margin="14,2,14,2" Background="{DynamicResource Divider}"/>
+
+                        <Button Content="Stop" Style="{StaticResource Ghost}" Command="{Binding StopCheckerCommand}"
+                                IsEnabled="{Binding IsChecking}" ToolTip="Annule l'opération en cours."/>
+                    </StackPanel>
                 </DockPanel>
 
                 <DockPanel Grid.Row="1" Margin="0,0,0,12" LastChildFill="False">

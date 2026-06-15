@@ -248,8 +248,11 @@ VALUES ($k,$e,$p,$u,$s,$sc,$st,$cat,$cr,$bd,$m,$t,$at,$rt);";
 
     public IReadOnlyList<AccountRecord> LoadAccountsToRecheck()
         => QueryAccounts(
+            // Every account that is NOT a wrong password (INVALIDE) and still holds a refresh token — i.e. all
+            // VALIDE / CUSTOM / BAN / EXPIRE / other with a usable token, so a recheck can revisit them without
+            // a captcha. (A wrong-password account has no token anyway.)
             $"SELECT {AccountColumns} FROM accounts " +
-            "WHERE Success = 1 AND RefreshToken IS NOT NULL AND RefreshToken <> '';",
+            "WHERE COALESCE(Category,'') <> 'INVALIDE' AND RefreshToken IS NOT NULL AND RefreshToken <> '';",
             _ => { });
 
     private const string AccountColumns =

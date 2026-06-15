@@ -69,25 +69,23 @@ public sealed class AccountRegistryTests : IDisposable
     }
 
     [Fact]
-    public void LoadAccountsToRecheck_returns_all_successes_with_a_refresh_token()
+    public void LoadAccountsToRecheck_returns_every_non_invalid_account_with_a_refresh_token()
     {
         var (_, storage) = New();
         var now = DateTime.UtcNow;
-        // candidate: success, no credit, refresh token
-        storage.UpsertAccount(new AccountRecord("k1", "need@x", "p", null, true, 200, "ACTIVE", "VALIDE", null, null, null, now, "acc1", "ref1"));
-        // candidate too: success WITH credit + refresh token (so expiry can still be detected)
-        storage.UpsertAccount(new AccountRecord("k2", "has@x", "p", null, true, 200, "ACTIVE", "VALIDE", 50m, null, null, now, "acc2", "ref2"));
-        // not: no refresh token to reuse
-        storage.UpsertAccount(new AccountRecord("k3", "notok@x", "p", null, true, 200, "ACTIVE", "VALIDE", null, null, null, now, "acc3", null));
-        // not: a 400 (wrong password) is not a success
-        storage.UpsertAccount(new AccountRecord("k4", "bad@x", "p", null, false, 400, null, "INVALIDE", null, null, null, now, null, null));
+        storage.UpsertAccount(new AccountRecord("k1", "valid@x", "p", null, true, 200, "ACTIVE", "VALIDE", null, null, null, now, "acc1", "ref1"));
+        storage.UpsertAccount(new AccountRecord("k2", "credit@x", "p", null, true, 200, "ACTIVE", "VALIDE", 50m, null, null, now, "acc2", "ref2"));
+        storage.UpsertAccount(new AccountRecord("k5", "ban@x", "p", null, true, 200, "SUSPENDED", "BAN", null, null, null, now, "acc5", "ref5"));
+        storage.UpsertAccount(new AccountRecord("k6", "expire@x", "p", null, true, 200, "ex_beneficiary", "EXPIRE", 0m, null, null, now, "acc6", "ref6"));
+        storage.UpsertAccount(new AccountRecord("k3", "notok@x", "p", null, true, 200, "ACTIVE", "VALIDE", null, null, null, now, "acc3", null)); // no token
+        storage.UpsertAccount(new AccountRecord("k4", "bad@x", "p", null, false, 400, null, "INVALIDE", null, null, null, now, null, null));     // wrong password
 
         var candidates = storage.LoadAccountsToRecheck();
-        Assert.Equal(2, candidates.Count);
-        Assert.Contains(candidates, a => a.Email == "need@x");
-        Assert.Contains(candidates, a => a.Email == "has@x");
+        Assert.Equal(4, candidates.Count);
+        Assert.Contains(candidates, a => a.Email == "ban@x");        // BAN now rechecked
+        Assert.Contains(candidates, a => a.Email == "expire@x");     // EXPIRE too
         Assert.DoesNotContain(candidates, a => a.Email == "notok@x"); // no refresh token
-        Assert.DoesNotContain(candidates, a => a.Email == "bad@x");   // not a success
+        Assert.DoesNotContain(candidates, a => a.Email == "bad@x");   // INVALIDE excluded
     }
 
     [Fact]
