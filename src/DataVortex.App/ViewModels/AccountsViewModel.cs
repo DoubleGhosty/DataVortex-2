@@ -190,18 +190,42 @@ public sealed partial class AccountsViewModel : ObservableObject
 
     public ObservableCollection<CredentialEntry> Accounts { get; } = new();
 
+    /// <summary>Opens Chrome already logged into passculture for this account: mints a fresh access token from
+    /// the stored refresh token (the stored one expires in ~15 min), then injects both tokens into the site's
+    /// localStorage via DevTools so the session is open. Zero captcha.</summary>
     [RelayCommand]
-    private void CopyAccessToken(CredentialEntry? entry)
+    private async Task OpenSessionAsync(CredentialEntry? entry)
     {
-        if (entry is null || string.IsNullOrWhiteSpace(entry.AccessToken)) return;
-        try { System.Windows.Clipboard.SetText(entry.AccessToken); StatusText = "Access token copied to clipboard."; } catch { }
-    }
+        if (entry is null) return;
+        if (string.IsNullOrWhiteSpace(entry.RefreshToken) && string.IsNullOrWhiteSpace(entry.AccessToken))
+        {
+            StatusText = "Aucun token disponible pour ce compte.";
+            return;
+        }
 
-    [RelayCommand]
-    private void CopyRefreshToken(CredentialEntry? entry)
-    {
-        if (entry is null || string.IsNullOrWhiteSpace(entry.RefreshToken)) return;
-        try { System.Windows.Clipboard.SetText(entry.RefreshToken); StatusText = "Refresh token copied to clipboard."; } catch { }
+        StatusText = $"Ouverture de session pour {entry.Username}…";
+        try
+        {
+            // Refresh the (short-lived) access token first; fall back to the stored one if refresh fails.
+            var access = entry.AccessToken;
+            if (!string.IsNullOrWhiteSpace(entry.RefreshToken))
+            {
+                var r = await _passClient.RefreshAccessTokenAsync(entry.RefreshToken!);
+                if (!string.IsNullOrWhiteSpace(r.AccessToken)) access = r.AccessToken;
+            }
+            if (string.IsNullOrWhiteSpace(access))
+            {
+                StatusText = "Impossible d'obtenir un token valide (refresh expiré ?).";
+                return;
+            }
+
+            await BrowserSessionLauncher.OpenAsync(access!, entry.RefreshToken);
+            StatusText = $"Session ouverte dans Chrome pour {entry.Username}.";
+        }
+        catch (Exception ex)
+        {
+            StatusText = "Échec de l'ouverture de session : " + ex.Message;
+        }
     }
 
     [RelayCommand]
