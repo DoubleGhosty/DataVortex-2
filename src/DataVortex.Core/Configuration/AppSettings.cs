@@ -85,6 +85,14 @@ public sealed class AppSettings
     /// archive flow and the manual button (1..10). Each check costs a captcha; HTTP 429 is retried with backoff.</summary>
     public int MaxParallelAccountChecks { get; set; } = 10;
 
+    // ---- Notifications ----
+    /// <summary>When true, each freshly-found VALID account with a non-zero balance is sent on Telegram (via the
+    /// app's own client) to <see cref="NotifyTarget"/>.</summary>
+    public bool NotifyOnTelegram { get; set; }
+
+    /// <summary>Who to notify on Telegram: a group/channel title, or a public <c>@username</c>.</summary>
+    public string NotifyTarget { get; set; } = "";
+
     // ---- Maintenance ----
     /// <summary>Safety-net cleanup: files left in downloads/ and extracted/ older than this many minutes are
     /// deleted periodically (active/locked files are skipped). 0 disables it.</summary>

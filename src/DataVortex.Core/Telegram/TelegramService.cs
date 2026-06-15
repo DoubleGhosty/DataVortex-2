@@ -301,6 +301,48 @@ public sealed class TelegramService : ITelegramService, IDisposable
         dialogs.CollectUsersChats(_manager.Users, _manager.Chats);
     }
 
+    public async Task SendHtmlToTargetAsync(string target, string html, CancellationToken ct = default)
+    {
+        if (_client is null || _manager is null || string.IsNullOrWhiteSpace(target) || string.IsNullOrWhiteSpace(html)) return;
+        await EnsureDialogsLoadedAsync(ct).ConfigureAwait(false);
+
+        var t = target.Trim();
+        var handle = t.TrimStart('@');
+
+        // 1) a group/channel already in the dialog cache, matched by title or @username
+        var chat = _manager.Chats.Values.FirstOrDefault(c =>
+            string.Equals(c.Title, t, StringComparison.OrdinalIgnoreCase) ||
+            (c is Channel ch && string.Equals(ch.MainUsername, handle, StringComparison.OrdinalIgnoreCase)));
+        InputPeer? peer = chat switch
+        {
+            Channel ch => new InputPeerChannel(ch.id, ch.access_hash),
+            Chat c => new InputPeerChat(c.id),
+            _ => null
+        };
+
+        // 2) otherwise resolve it as a public @username (user, bot or channel)
+        if (peer is null && !t.Contains(' '))
+        {
+            try
+            {
+                var r = await _client.Contacts_ResolveUsername(handle).ConfigureAwait(false);
+                peer = r.peer switch
+                {
+                    PeerUser pu when r.users.TryGetValue(pu.user_id, out var u) => u.ToInputPeer(),
+                    PeerChannel pc when r.chats.TryGetValue(pc.channel_id, out var c) => c.ToInputPeer(),
+                    PeerChat pch when r.chats.TryGetValue(pch.chat_id, out var c) => c.ToInputPeer(),
+                    _ => null
+                };
+            }
+            catch (Exception ex) { _log.LogWarning(ex, "Notification: destinataire '{Target}' non résolu", t); }
+        }
+
+        if (peer is null) { _log.LogWarning("Notification: destinataire Telegram '{Target}' introuvable", t); return; }
+
+        var entities = _client.HtmlToEntities(ref html);
+        await _client.SendMessageAsync(peer, html, entities: entities).ConfigureAwait(false);
+    }
+
     public async Task<HistoryPage> ScanHistoryPageAsync(long channelId, int offsetId, int pageSize, CancellationToken ct = default)
     {
         if (_client is null || _manager is null) return new HistoryPage(0, 0, offsetId, true, 0);

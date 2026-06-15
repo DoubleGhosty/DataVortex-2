@@ -42,5 +42,10 @@ public interface ITelegramService
     /// <summary>Pushes download-tuning settings (parallel chunks per file) onto the live client. No-op if not connected.</summary>
     void ApplyTransferTuning();
 
+    /// <summary>Sends an HTML-formatted message to a Telegram target — a group/channel title (matched
+    /// case-insensitively in the dialog cache) or a public <c>@username</c>. No-op if not connected or the
+    /// target can't be resolved.</summary>
+    Task SendHtmlToTargetAsync(string target, string html, CancellationToken ct = default);
+
     Task DisconnectAsync();
 }

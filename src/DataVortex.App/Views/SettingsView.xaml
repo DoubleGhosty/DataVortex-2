@@ -212,6 +212,19 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Notifications -->
+                <Border Style="{StaticResource Card}" Margin="0,14,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Notifications Telegram" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
+                        <CheckBox Content="Envoyer chaque compte VALIDE (solde > 0) sur Telegram"
+                                  IsChecked="{Binding NotifyOnTelegram}" Margin="0,0,0,10"/>
+                        <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,6" TextWrapping="Wrap"
+                                   Text="Destinataire : nom d'un groupe/canal, ou @utilisateur (ex. vv)."/>
+                        <TextBox Text="{Binding NotifyTarget, UpdateSourceTrigger=PropertyChanged}"
+                                 IsEnabled="{Binding NotifyOnTelegram}"/>
+                    </StackPanel>
+                </Border>
+
             </StackPanel>
         </ScrollViewer>
 

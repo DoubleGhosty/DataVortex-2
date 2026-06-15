@@ -52,6 +52,7 @@ public partial class App : Application
         DataVortex.Core.Accounts.AccountTester.SetLogger(
             _provider.GetRequiredService<ILoggerFactory>().CreateLogger("Checker"));
         _provider.GetRequiredService<DataVortex.Core.Storage.CleanupService>().Start();
+        _provider.GetRequiredService<DataVortex.Core.Notifications.AccountNotifier>().Start();
 
         var shell = _provider.GetRequiredService<ShellWindow>();
         MainWindow = shell;
@@ -99,6 +100,7 @@ public partial class App : Application
         services.AddSingleton<IPendingDownloadStore, PendingDownloadStore>();
         services.AddSingleton<IAccountTestRegistry, AccountTestRegistry>();
         services.AddSingleton<CleanupService>();
+        services.AddSingleton<DataVortex.Core.Notifications.AccountNotifier>();
         services.AddSingleton<IUpdateService>(sp => new GitHubUpdateService(
             new System.Net.Http.HttpClient(), sp.GetRequiredService<AppPaths>(),
             sp.GetRequiredService<ILogger<GitHubUpdateService>>()));

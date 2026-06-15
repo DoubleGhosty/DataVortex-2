@@ -62,6 +62,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool useCapMonster;
     [ObservableProperty] private string capMonsterApiKey = "";
 
+    // ---- Notifications (live) ----
+    [ObservableProperty] private bool notifyOnTelegram;
+    [ObservableProperty] private string notifyTarget = "";
+
     // ---- Proxy for Passculture (restart required) ----
     [ObservableProperty] private bool proxyEnabled;
     [ObservableProperty] private string proxyStatus = "";
@@ -124,6 +128,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         TwoCaptchaApiKey = s.TwoCaptchaApiKey ?? "";
         CapMonsterApiKey = s.CapMonsterApiKey ?? "";
         UseCapMonster = string.Equals(s.CaptchaProvider, "CapMonster", StringComparison.OrdinalIgnoreCase);
+        NotifyOnTelegram = s.NotifyOnTelegram;
+        NotifyTarget = s.NotifyTarget ?? "";
 
         ProxyEnabled = s.ProxyEnabled;
         _importedProxies = null;
@@ -239,6 +245,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         s.TwoCaptchaApiKey = (TwoCaptchaApiKey ?? "").Trim();
         s.CapMonsterApiKey = (CapMonsterApiKey ?? "").Trim();
         s.CaptchaProvider = UseCapMonster ? "CapMonster" : "TwoCaptcha";
+        s.NotifyOnTelegram = NotifyOnTelegram;
+        s.NotifyTarget = (NotifyTarget ?? "").Trim();
 
         // Proxy (restart required — the rotating HttpClient pool is built once at startup).
         s.ProxyEnabled = ProxyEnabled;
