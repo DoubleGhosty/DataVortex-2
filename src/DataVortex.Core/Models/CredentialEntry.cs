@@ -26,7 +26,8 @@ public sealed record CredentialEntry(
         // Kept in sync with AccountTestRegistry.Categorize.
         200 when IsBadState(AccountState) => "BAN",
         200 when string.Equals(AccountState, "ACTIVE", StringComparison.OrdinalIgnoreCase) => "VALIDE",
-        200 => "CUSTOM",
+        200 when string.Equals(AccountState, "ex_beneficiary", StringComparison.OrdinalIgnoreCase) => "EXPIRE",
+        200 => "CUSTOM", // incl. non_eligible
         400 when IsBadState(AccountState) => "BAN",                // e.g. ACCOUNT_DELETED
         400 when !string.IsNullOrEmpty(AccountState) => "CUSTOM",  // e.g. EMAIL_NOT_VALIDATED
         400 => "INVALIDE",                                         // bare 400 = wrong password

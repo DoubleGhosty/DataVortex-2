@@ -69,22 +69,25 @@ public sealed class AccountRegistryTests : IDisposable
     }
 
     [Fact]
-    public void LoadAccountsNeedingCredit_returns_only_creditless_successes_with_a_refresh_token()
+    public void LoadAccountsToRecheck_returns_all_successes_with_a_refresh_token()
     {
         var (_, storage) = New();
         var now = DateTime.UtcNow;
-        // candidate: success, no credit, has a refresh token
+        // candidate: success, no credit, refresh token
         storage.UpsertAccount(new AccountRecord("k1", "need@x", "p", null, true, 200, "ACTIVE", "VALIDE", null, null, null, now, "acc1", "ref1"));
-        // not: credit already known
+        // candidate too: success WITH credit + refresh token (so expiry can still be detected)
         storage.UpsertAccount(new AccountRecord("k2", "has@x", "p", null, true, 200, "ACTIVE", "VALIDE", 50m, null, null, now, "acc2", "ref2"));
         // not: no refresh token to reuse
         storage.UpsertAccount(new AccountRecord("k3", "notok@x", "p", null, true, 200, "ACTIVE", "VALIDE", null, null, null, now, "acc3", null));
         // not: a 400 (wrong password) is not a success
         storage.UpsertAccount(new AccountRecord("k4", "bad@x", "p", null, false, 400, null, "INVALIDE", null, null, null, now, null, null));
 
-        var candidates = storage.LoadAccountsNeedingCredit();
-        Assert.Single(candidates);
-        Assert.Equal("need@x", candidates[0].Email);
+        var candidates = storage.LoadAccountsToRecheck();
+        Assert.Equal(2, candidates.Count);
+        Assert.Contains(candidates, a => a.Email == "need@x");
+        Assert.Contains(candidates, a => a.Email == "has@x");
+        Assert.DoesNotContain(candidates, a => a.Email == "notok@x"); // no refresh token
+        Assert.DoesNotContain(candidates, a => a.Email == "bad@x");   // not a success
     }
 
     [Fact]
@@ -177,8 +180,19 @@ public sealed class AccountRegistryTests : IDisposable
     [InlineData(400, null, "INVALIDE")]                       // bare 400 = wrong password
     [InlineData(400, "EMAIL_NOT_VALIDATED", "CUSTOM")]        // 400 with a non-bad reason code = custom
     [InlineData(400, "ACCOUNT_DELETED", "BAN")]               // 400 with a "deleted" code = ban
+    [InlineData(200, "ex_beneficiary", "EXPIRE")]            // /me ex-beneficiary = expired credit
+    [InlineData(200, "non_eligible", "CUSTOM")]              // /me non-eligible = custom
     public void Categorize_maps_suspended_states_to_BAN(int code, string? state, string expected)
         => Assert.Equal(expected, AccountTestRegistry.Categorize(code, state));
+
+    [Theory]
+    [InlineData("ACTIVE", "beneficiary", "ACTIVE")]                 // normal eligible → stays VALIDE
+    [InlineData("ACTIVE", "ex_beneficiary", "ex_beneficiary")]     // → EXPIRE
+    [InlineData("ACTIVE", "non_eligible", "non_eligible")]         // → CUSTOM
+    [InlineData("SUSPENDED", "ex_beneficiary", "SUSPENDED")]       // bad sign-in state wins (BAN)
+    [InlineData("ACTIVE", null, "ACTIVE")]
+    public void RefineState_applies_me_status(string? signin, string? me, string? expected)
+        => Assert.Equal(expected, AccountTester.RefineState(signin, me));
 
     [Theory]
     [InlineData("{\"code\":\"EMAIL_NOT_VALIDATED\",\"general\":[\"L'email n'a pas été validé.\"]}", "EMAIL_NOT_VALIDATED")]

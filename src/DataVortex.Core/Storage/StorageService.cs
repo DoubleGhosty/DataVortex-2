@@ -246,10 +246,10 @@ VALUES ($k,$e,$p,$u,$s,$sc,$st,$cat,$cr,$bd,$m,$t,$at,$rt);";
         finally { _writeLock.Release(); }
     }
 
-    public IReadOnlyList<AccountRecord> LoadAccountsNeedingCredit()
+    public IReadOnlyList<AccountRecord> LoadAccountsToRecheck()
         => QueryAccounts(
             $"SELECT {AccountColumns} FROM accounts " +
-            "WHERE Credit IS NULL AND Success = 1 AND RefreshToken IS NOT NULL AND RefreshToken <> '';",
+            "WHERE Success = 1 AND RefreshToken IS NOT NULL AND RefreshToken <> '';",
             _ => { });
 
     private const string AccountColumns =

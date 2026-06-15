@@ -101,6 +101,7 @@ public static class AccountTester
                     var success = verdict == SignInVerdict.Valid;
                     decimal? credit = null;
                     string? birth = null;
+                    string? meStatus = null;
                     if (success && signin.AccessToken is not null)
                     {
                         // /me is best-effort but transient failures used to leave a valid account with a null
@@ -110,18 +111,18 @@ public static class AccountTester
                             try
                             {
                                 var me = await passClient.GetMeAsync(signin.AccessToken, ct).ConfigureAwait(false);
-                                if (me.Success) { credit = me.DomainsCreditRemaining; birth = me.BirthDate; break; }
+                                if (me.Success) { credit = me.DomainsCreditRemaining; birth = me.BirthDate; meStatus = me.StatusType; break; }
                             }
                             catch { /* transient */ }
                             if (meTry < 2) await Task.Delay(TimeSpan.FromSeconds(1 + meTry), ct).ConfigureAwait(false);
                         }
                     }
 
-                    // Valid keeps the backend accountState; a custom 400 carries its code so it categorises as
-                    // CUSTOM (e.g. EMAIL_NOT_VALIDATED); a wrong-password 400 carries none → INVALIDE.
+                    // Valid: the /me status refines the category (ex_beneficiary → EXPIRE, non_eligible → CUSTOM).
+                    // A custom 400 carries its code (e.g. EMAIL_NOT_VALIDATED → CUSTOM); a wrong-password 400 → INVALIDE.
                     var state = verdict switch
                     {
-                        SignInVerdict.Valid => signin.AccountState,
+                        SignInVerdict.Valid => RefineState(signin.AccountState, meStatus),
                         SignInVerdict.Definitive => Definitive400Code(signin.Raw),
                         _ => null
                     };
@@ -210,8 +211,9 @@ public static class AccountTester
         }
         if (!me.Success) return (false, false, false); // transient (5xx/0) → retry later
 
-        // Still reachable: refresh credit + birth, and KEEP the original state (never promote a CUSTOM to VALIDE).
-        Persist(registry, account, access, me.DomainsCreditRemaining, me.BirthDate, account.AccountState);
+        // Still reachable: refresh credit + birth. The /me status can move it to EXPIRE (ex_beneficiary) or
+        // CUSTOM (non_eligible); otherwise the original state is kept (never promote a CUSTOM to VALIDE).
+        Persist(registry, account, access, me.DomainsCreditRemaining, me.BirthDate, RefineState(account.AccountState, me.StatusType));
         _log?.LogInformation("Recheck {Email}: actif, crédit={Credit}", account.Email, me.DomainsCreditRemaining);
         return (true, me.DomainsCreditRemaining is not null, false);
     }
@@ -233,6 +235,17 @@ public static class AccountTester
         if (string.IsNullOrEmpty(raw)) return false;
         return raw.Contains("mot de passe incorrect", StringComparison.OrdinalIgnoreCase)
             || raw.Contains("identifiant ou mot de passe", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Refines a valid sign-in's account state with the finer <c>/me</c> status: an ex-beneficiary's
+    /// credit has expired (→ EXPIRE), a non-eligible account isn't a beneficiary (→ CUSTOM). A "bad" sign-in
+    /// state (suspended/etc.) is kept as-is. Returns the state to store so the category resolves correctly.</summary>
+    public static string? RefineState(string? signinState, string? meStatusType)
+    {
+        if (AccountTestRegistry.IsBadState(signinState)) return signinState;
+        if (string.Equals(meStatusType, "ex_beneficiary", StringComparison.OrdinalIgnoreCase)) return "ex_beneficiary";
+        if (string.Equals(meStatusType, "non_eligible", StringComparison.OrdinalIgnoreCase)) return "non_eligible";
+        return signinState;
     }
 
     private enum SignInVerdict { Valid, WrongPassword, Definitive, Retry }

@@ -23,6 +23,7 @@ public sealed class MeResult
     public int StatusCode { get; init; }
     public decimal? DomainsCreditRemaining { get; init; }
     public string? BirthDate { get; init; } // expected format: yyyy-MM-dd
+    public string? StatusType { get; init; } // status.statusType e.g. "non_eligible", "ex_beneficiary"
     public string? Raw { get; init; }
 }
 
@@ -183,7 +184,11 @@ public sealed class PasscultureClient
                     if (rem.TryGetDecimal(out var d)) credit = d;
                 }
                 if (root.TryGetProperty("birthDate", out var bd)) birth = bd.GetString();
-                return new MeResult { Success = resp.IsSuccessStatusCode, StatusCode = (int)resp.StatusCode, DomainsCreditRemaining = credit, BirthDate = birth, Raw = s };
+                string? statusType = null;
+                if (root.TryGetProperty("status", out var st) && st.ValueKind == JsonValueKind.Object
+                    && st.TryGetProperty("statusType", out var stt))
+                    statusType = stt.GetString();
+                return new MeResult { Success = resp.IsSuccessStatusCode, StatusCode = (int)resp.StatusCode, DomainsCreditRemaining = credit, BirthDate = birth, StatusType = statusType, Raw = s };
             }
             catch
             {

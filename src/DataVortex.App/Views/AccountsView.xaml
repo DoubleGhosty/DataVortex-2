@@ -39,8 +39,9 @@
                             ToolTip="Supprime tous les résultats et reteste chaque compte via une vraie connexion (1 captcha/compte). Irréversible."/>
                     <Button Content="Stop" Style="{StaticResource Ghost}" Command="{Binding StopCheckerCommand}"
                             DockPanel.Dock="Right" Margin="0,0,8,0" IsEnabled="{Binding IsChecking}"/>
-                    <Button Content="Rafraîchir crédits" Style="{StaticResource Ghost}" Command="{Binding RefreshCreditsCommand}"
-                            DockPanel.Dock="Right" Margin="0,0,8,0"/>
+                    <Button Content="Revérifier comptes" Style="{StaticResource Ghost}" Command="{Binding RefreshCreditsCommand}"
+                            DockPanel.Dock="Right" Margin="0,0,8,0"
+                            ToolTip="Revérifie crédit + statut (EXPIRE) + suspension de tous les comptes valides, via refresh token (0 captcha)."/>
                     <Button Content="Tester les comptes" Style="{StaticResource Ghost}" Command="{Binding TestAccountsCommand}"
                             DockPanel.Dock="Right" Margin="0,0,8,0"/>
                 </DockPanel>
@@ -54,6 +55,8 @@
                                   Content="{Binding CountBan, StringFormat='BAN : {0}'}"/>
                         <CheckBox IsChecked="{Binding ShowCustom}" Margin="0,0,16,0" FontWeight="SemiBold" Foreground="{DynamicResource Warning}"
                                   Content="{Binding CountCustom, StringFormat='CUSTOM : {0}'}"/>
+                        <CheckBox IsChecked="{Binding ShowExpire}" Margin="0,0,16,0" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondary}"
+                                  Content="{Binding CountExpire, StringFormat='EXPIRE : {0}'}"/>
                         <Border Style="{StaticResource StatusBadge}" Margin="8,0,0,0">
                             <TextBlock FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondary}"
                                        Text="{Binding CountRetry, StringFormat='RETRY : {0}'}"/>

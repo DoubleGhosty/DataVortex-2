@@ -43,6 +43,9 @@ public sealed partial class AccountsViewModel : ObservableObject
     private int _countCustom;
     public int CountCustom { get => _countCustom; set => SetProperty(ref _countCustom, value); }
 
+    private int _countExpire;
+    public int CountExpire { get => _countExpire; set => SetProperty(ref _countExpire, value); }
+
     private int _countRetry;
     public int CountRetry { get => _countRetry; set => SetProperty(ref _countRetry, value); }
 
@@ -55,6 +58,9 @@ public sealed partial class AccountsViewModel : ObservableObject
 
     private bool _showCustom = true;
     public bool ShowCustom { get => _showCustom; set { if (SetProperty(ref _showCustom, value)) ResetAndRefresh(); } }
+
+    private bool _showExpire = true;
+    public bool ShowExpire { get => _showExpire; set { if (SetProperty(ref _showExpire, value)) ResetAndRefresh(); } }
 
     // ---- Search + pagination (indexed SQL, so the grid never loads the whole store) ----
     private const int PageSize = 200;
@@ -88,6 +94,7 @@ public sealed partial class AccountsViewModel : ObservableObject
         if (ShowValid) cats.Add("VALIDE");
         if (ShowBan) cats.Add("BAN");
         if (ShowCustom) cats.Add("CUSTOM");
+        if (ShowExpire) cats.Add("EXPIRE");
         return cats;
     }
 
@@ -171,6 +178,7 @@ public sealed partial class AccountsViewModel : ObservableObject
             CountValid = counts.FirstOrDefault(c => c.Category == "VALIDE")?.Count ?? 0;
             CountBan = counts.FirstOrDefault(c => c.Category == "BAN")?.Count ?? 0;
             CountCustom = counts.FirstOrDefault(c => c.Category == "CUSTOM")?.Count ?? 0;
+            CountExpire = counts.FirstOrDefault(c => c.Category == "EXPIRE")?.Count ?? 0;
         });
     }
 
@@ -243,15 +251,16 @@ public sealed partial class AccountsViewModel : ObservableObject
         }, ct);
     });
 
-    /// <summary>Re-fetches the credit (and birth date) of accounts that came back VALIDE/CUSTOM but never got
-    /// a credit, by reusing their stored refresh token — so it costs <b>zero captcha</b> and no sign-in.</summary>
+    /// <summary>Re-verifies every successful account that still holds a refresh token — credit, status (incl.
+    /// EXPIRE) and suspension — by reusing the stored refresh token, so it costs <b>zero captcha</b> and no
+    /// sign-in. Catches accounts whose credit has since expired (ex_beneficiary → EXPIRE).</summary>
     [RelayCommand]
     private Task RefreshCreditsAsync() => RunCheckerAsync(async ct =>
     {
-        var candidates = await Task.Run(() => _storage.LoadAccountsNeedingCredit(), ct);
+        var candidates = await Task.Run(() => _storage.LoadAccountsToRecheck(), ct);
         if (candidates.Count == 0)
         {
-            _ui.Post(() => StatusText = "Aucun compte à rafraîchir (crédit déjà connu ou pas de refresh token).");
+            _ui.Post(() => StatusText = "Aucun compte à revérifier (pas de refresh token).");
             return;
         }
 
