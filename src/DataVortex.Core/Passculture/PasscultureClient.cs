@@ -32,6 +32,7 @@ public sealed class MeResult
 public sealed class RefreshResult
 {
     public string? AccessToken { get; init; }
+    public string? RefreshToken { get; init; } // a new refresh token if the backend rotates it
     public int StatusCode { get; init; }
 }
 
@@ -153,13 +154,18 @@ public sealed class PasscultureClient
             var http = _pool.Next();
             using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
             var s = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            string? token = null;
+            string? token = null, newRefresh = null;
             if (resp.IsSuccessStatusCode)
             {
-                try { using var doc = JsonDocument.Parse(s); if (doc.RootElement.TryGetProperty("accessToken", out var a)) token = a.GetString(); }
+                try
+                {
+                    using var doc = JsonDocument.Parse(s);
+                    if (doc.RootElement.TryGetProperty("accessToken", out var a)) token = a.GetString();
+                    if (doc.RootElement.TryGetProperty("refreshToken", out var r)) newRefresh = r.GetString();
+                }
                 catch { /* unparseable body */ }
             }
-            return new RefreshResult { AccessToken = token, StatusCode = (int)resp.StatusCode };
+            return new RefreshResult { AccessToken = token, RefreshToken = newRefresh, StatusCode = (int)resp.StatusCode };
         }
         catch { return new RefreshResult { StatusCode = 0 }; }
     }

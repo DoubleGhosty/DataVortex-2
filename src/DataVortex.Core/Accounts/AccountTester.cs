@@ -1,5 +1,3 @@
-using System.Text;
-using System.Text.Json;
 using DataVortex.Core.Abstractions;
 using DataVortex.Core.Models;
 using DataVortex.Core.Passculture;
@@ -185,44 +183,30 @@ public static class AccountTester
 
         var refresh = await passClient.RefreshAccessTokenAsync(account.RefreshToken!, ct).ConfigureAwait(false);
 
-        // Refresh rejected: if the token has NOT expired yet, the session was revoked → very likely a
-        // suspension. If it simply expired (~31 days), we can't tell without a fresh sign-in → leave it.
-        if (refresh.StatusCode is 401 or 403)
-        {
-            var exp = JwtExpiry(account.RefreshToken);
-            if (exp is null || exp <= DateTime.UtcNow) return (false, false, false);
-            Persist(registry, account, account.AccessToken, null, null, "SUSPENDED");
-            _log?.LogInformation("Recheck {Email}: refresh rejeté HTTP {Code}, token non expiré → SUSPENDED", account.Email, refresh.StatusCode);
-            return (true, false, true);
-        }
-
+        // A 401/403 here is NOT a reliable ban signal: it's usually a blocked proxy IP (403 served by the
+        // proxy/CDN) or a rotated refresh token, NOT a real suspension. So we never reclassify to SUSPENDED on
+        // an auth failure — only a successful /me updates the account; anything else leaves it untouched.
         var access = refresh.AccessToken ?? account.AccessToken;
-        if (string.IsNullOrEmpty(access)) return (false, false, false); // non-auth failure (5xx/0) → retry later
+        if (string.IsNullOrEmpty(access)) return (false, false, false);
 
         MeResult me;
         try { me = await passClient.GetMeAsync(access!, ct).ConfigureAwait(false); }
         catch { return (false, false, false); }
+        if (!me.Success) return (false, false, false); // 401/403/5xx → couldn't verify → leave the account as-is
 
-        if (me.StatusCode is 401 or 403)
-        {
-            Persist(registry, account, access, null, null, "SUSPENDED");
-            _log?.LogInformation("Recheck {Email}: /me HTTP {Code} → SUSPENDED", account.Email, me.StatusCode);
-            return (true, false, true);
-        }
-        if (!me.Success) return (false, false, false); // transient (5xx/0) → retry later
-
-        // Still reachable: refresh credit + birth. The /me status can move it to EXPIRE (ex_beneficiary) or
-        // CUSTOM (non_eligible); otherwise the original state is kept (never promote a CUSTOM to VALIDE).
-        Persist(registry, account, access, me.DomainsCreditRemaining, me.BirthDate, RefineState(account.AccountState, me.StatusType));
-        _log?.LogInformation("Recheck {Email}: actif, crédit={Credit}", account.Email, me.DomainsCreditRemaining);
+        // Reachable: refresh credit + birth, refine status (EXPIRE/CUSTOM), and keep a rotated refresh token.
+        var refreshToken = string.IsNullOrWhiteSpace(refresh.RefreshToken) ? account.RefreshToken : refresh.RefreshToken;
+        Persist(registry, account, access, me.DomainsCreditRemaining, me.BirthDate,
+            RefineState(account.AccountState, me.StatusType), refreshToken);
+        _log?.LogInformation("Recheck {Email}: ok, crédit={Credit}", account.Email, me.DomainsCreditRemaining);
         return (true, me.DomainsCreditRemaining is not null, false);
     }
 
     private static void Persist(IAccountTestRegistry registry, AccountRecord a, string? access,
-        decimal? credit, string? birth, string? accountState)
+        decimal? credit, string? birth, string? accountState, string? refreshToken = null)
     {
         var result = new AccountTestResult(
-            a.Success, a.StatusCode, access, a.RefreshToken,
+            a.Success, a.StatusCode, access, refreshToken ?? a.RefreshToken,
             credit ?? a.Credit, birth ?? a.BirthDate, a.Message, DateTime.UtcNow, accountState);
         registry.Complete(a.Email, a.Password, result);
     }
@@ -269,24 +253,6 @@ public static class AccountTester
     {
         if (IsWrongPassword(raw)) return SignInVerdict.WrongPassword;
         return Definitive400Code(raw) is not null ? SignInVerdict.Definitive : SignInVerdict.Retry;
-    }
-
-    /// <summary>Reads the <c>exp</c> claim (UTC) of a JWT without validating its signature; null if unreadable.</summary>
-    private static DateTime? JwtExpiry(string? jwt)
-    {
-        try
-        {
-            var parts = jwt?.Split('.');
-            if (parts is not { Length: 3 }) return null;
-            var payload = parts[1].Replace('-', '+').Replace('_', '/');
-            payload += (payload.Length % 4) switch { 2 => "==", 3 => "=", _ => "" };
-            var json = Encoding.UTF8.GetString(Convert.FromBase64String(payload));
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.TryGetProperty("exp", out var e) && e.TryGetInt64(out var s))
-                return DateTimeOffset.FromUnixTimeSeconds(s).UtcDateTime;
-        }
-        catch { /* not a readable JWT */ }
-        return null;
     }
 
     /// <summary>Folds a registry outcome back into a <see cref="CredentialEntry"/> (for the per-file record).</summary>
