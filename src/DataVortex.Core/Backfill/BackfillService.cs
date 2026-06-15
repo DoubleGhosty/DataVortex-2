@@ -116,53 +116,63 @@ public sealed class BackfillService : IBackfillService, IDisposable
                     continue;
                 }
 
+                // Wait once for the pipeline to be idle for the configured period before a scanning burst.
                 if (!await WaitForIdleAsync(ct).ConfigureAwait(false))
                     continue;
 
-                var next = NextChannelToScan();
-                if (next is null)
+                // Scanning burst: keep digging page after page while the pipeline stays idle. A page that
+                // enqueues nothing must NOT re-incur the full idle delay — only enqueuing new work (or live
+                // activity) sends us back to WaitForIdle so the queue can drain first.
+                while (!ct.IsCancellationRequested && _enabled && IsPipelineIdle())
                 {
-                    Publish(BackfillState.Completed, "");
-                    await Task.Delay(30000, ct).ConfigureAwait(false); // re-check (new channels / cleared state)
-                    continue;
+                    var next = NextChannelToScan();
+                    if (next is null)
+                    {
+                        Publish(BackfillState.Completed, "");
+                        await Task.Delay(30000, ct).ConfigureAwait(false); // re-check (new channels / cleared state)
+                        break;
+                    }
+
+                    var (channelId, title) = next.Value;
+                    Publish(BackfillState.Scanning, title);
+
+                    int offset;
+                    lock (_gate) offset = _progress.TryGetValue(channelId, out var p) ? p.OffsetId : 0;
+
+                    HistoryPage page;
+                    try
+                    {
+                        page = await _telegram.ScanHistoryPageAsync(channelId, offset, _settings.Current.BackfillPageSize, ct).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex)
+                    {
+                        _log.LogWarning(ex, "Backfill scan failed for {Channel}", title);
+                        await Task.Delay(10000, ct).ConfigureAwait(false);
+                        continue;
+                    }
+
+                    Interlocked.Add(ref _totalScanned, page.Scanned);
+                    Interlocked.Add(ref _totalEnqueued, page.Enqueued);
+
+                    lock (_gate)
+                    {
+                        if (!_progress.TryGetValue(channelId, out var p)) _progress[channelId] = p = new ChannelProgress();
+                        p.OffsetId = page.NextOffsetId;
+                        if (page.Exhausted) p.Completed = true;
+                    }
+                    Save();
+
+                    _log.LogInformation("Backfill {Channel}: scanned {Scanned}, enqueued {Enqueued} new archive(s){Done}",
+                        title, page.Scanned, page.Enqueued, page.Exhausted ? " — channel complete" : "");
+                    Publish(BackfillState.Scanning, title);
+
+                    // Enqueued new work → step back to the idle wait so it can drain. Nothing new → keep digging.
+                    if (page.Enqueued > 0)
+                        break;
+
+                    await Task.Delay(300, ct).ConfigureAwait(false); // stay gentle on the API
                 }
-
-                var (channelId, title) = next.Value;
-                Publish(BackfillState.Scanning, title);
-
-                int offset;
-                lock (_gate) offset = _progress.TryGetValue(channelId, out var p) ? p.OffsetId : 0;
-
-                HistoryPage page;
-                try
-                {
-                    page = await _telegram.ScanHistoryPageAsync(channelId, offset, _settings.Current.BackfillPageSize, ct).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) { throw; }
-                catch (Exception ex)
-                {
-                    _log.LogWarning(ex, "Backfill scan failed for {Channel}", title);
-                    await Task.Delay(10000, ct).ConfigureAwait(false);
-                    continue;
-                }
-
-                Interlocked.Add(ref _totalScanned, page.Scanned);
-                Interlocked.Add(ref _totalEnqueued, page.Enqueued);
-
-                lock (_gate)
-                {
-                    if (!_progress.TryGetValue(channelId, out var p)) _progress[channelId] = p = new ChannelProgress();
-                    p.OffsetId = page.NextOffsetId;
-                    if (page.Exhausted) p.Completed = true;
-                }
-                Save();
-
-                _log.LogInformation("Backfill {Channel}: scanned {Scanned}, enqueued {Enqueued} new archive(s){Done}",
-                    title, page.Scanned, page.Enqueued, page.Exhausted ? " — channel complete" : "");
-                Publish(BackfillState.Scanning, title);
-
-                // Be gentle on the API; if we queued work, the next loop will wait for idle anyway.
-                await Task.Delay(page.Enqueued > 0 ? 1000 : 300, ct).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) { }
@@ -179,12 +189,7 @@ public sealed class BackfillService : IBackfillService, IDisposable
         {
             if (!_enabled) return false;
 
-            bool idle = _coordinator.DownloadQueueDepth == 0
-                        && _coordinator.ProcessingQueueDepth == 0
-                        && _coordinator.ActiveDownloads == 0
-                        && !_coordinator.IsPaused;
-
-            if (!idle)
+            if (!IsPipelineIdle())
             {
                 idleSince = DateTime.UtcNow;
                 await Task.Delay(3000, ct).ConfigureAwait(false);
@@ -196,6 +201,13 @@ public sealed class BackfillService : IBackfillService, IDisposable
         }
         return false;
     }
+
+    /// <summary>True when the pipeline has no live or queued work — the condition for backfill to scan.</summary>
+    private bool IsPipelineIdle() =>
+        _coordinator.DownloadQueueDepth == 0
+        && _coordinator.ProcessingQueueDepth == 0
+        && _coordinator.ActiveDownloads == 0
+        && !_coordinator.IsPaused;
 
     /// <summary>Round-robin over watched channels (skipping completed ones), so the backfill scans the most
     /// recent page of EVERY channel in rotation instead of exhausting the first channel before moving on.</summary>

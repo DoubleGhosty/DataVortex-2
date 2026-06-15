@@ -117,7 +117,8 @@ public sealed class PasscultureClient
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "Signin exception");
+            // Network/proxy/timeout failure on the signin POST (NOT a backend rejection). Surface the reason.
+            _log.LogWarning(ex, "Signin exception pour {Email}: {Error}", identifier, ex.Message);
             return new SignInResult { Success = false, Raw = ex.Message };
         }
     }

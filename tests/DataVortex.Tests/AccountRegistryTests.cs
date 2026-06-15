@@ -125,6 +125,17 @@ public sealed class AccountRegistryTests : IDisposable
         Assert.True(reg.TryReserve("a@x", "p", "u"));     // so it can be re-tested from scratch
     }
 
+    [Fact]
+    public void Apply_preserves_account_state_so_category_is_VALIDE()
+    {
+        var cred = new CredentialEntry(null, "e@x", "p", 0, "");
+        var applied = AccountTester.Apply(cred, new AccountTestResult(true, 200, Credit: 594m, AccountState: "ACTIVE"));
+
+        Assert.Equal("ACTIVE", applied.AccountState);
+        Assert.Equal("VALIDE", applied.Category);   // was CUSTOM before AccountState was copied → notifier skipped it
+        Assert.Equal(594m, applied.Credit);
+    }
+
     [Theory]
     // Genuine bad-password 400 → definitive (INVALIDE)
     [InlineData("{\"general\":[\"Identifiant ou Mot de passe incorrect\"]}", true)]

@@ -17,10 +17,14 @@ public sealed class ObservableLogSink : ILogEventSink
 
     public void Emit(LogEvent logEvent)
     {
+        var message = logEvent.RenderMessage();
+        // Surface the exception reason in the live log too (the file sink already has the full stack).
+        if (logEvent.Exception is not null)
+            message += " — " + logEvent.Exception.Message;
         var entry = new LogEntry(
             logEvent.Timestamp.LocalDateTime,
             logEvent.Level.ToString(),
-            logEvent.RenderMessage());
+            message);
         Emitted?.Invoke(entry);
     }
 }

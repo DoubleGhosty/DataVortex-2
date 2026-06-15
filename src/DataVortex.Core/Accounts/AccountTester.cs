@@ -285,6 +285,7 @@ public static class AccountTester
             RefreshToken = r.RefreshToken,
             Credit = r.Credit,
             BirthDate = r.BirthDate,
-            StatusCode = r.StatusCode
+            StatusCode = r.StatusCode,
+            AccountState = r.AccountState // required so Category resolves correctly (VALIDE/BAN/CUSTOM)
         };
 }
