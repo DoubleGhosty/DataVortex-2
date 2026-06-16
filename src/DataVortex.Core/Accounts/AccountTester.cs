@@ -189,17 +189,30 @@ public static class AccountTester
         var access = refresh.AccessToken ?? account.AccessToken;
         if (string.IsNullOrEmpty(access)) return (false, false, false);
 
-        MeResult me;
-        try { me = await passClient.GetMeAsync(access!, ct).ConfigureAwait(false); }
-        catch { return (false, false, false); }
-        if (!me.Success) return (false, false, false); // 401/403/5xx → couldn't verify → leave the account as-is
+        // /me can fail transiently (flaky proxy IP / 429 / 5xx), so retry it a few times like the live flow does —
+        // a single-shot /me used to leave reachable accounts stuck in their old category (e.g. a non_eligible kept
+        // as VALIDE). Still zero captcha. An auth failure (401/403) is NOT a ban signal: after the retries we just
+        // leave the account untouched rather than downgrade it.
+        for (int meTry = 0; meTry < 3; meTry++)
+        {
+            MeResult me;
+            try { me = await passClient.GetMeAsync(access!, ct).ConfigureAwait(false); }
+            catch { me = new MeResult { Success = false }; }
 
-        // Reachable: refresh credit + birth, refine status (EXPIRE/CUSTOM), and keep a rotated refresh token.
-        var refreshToken = string.IsNullOrWhiteSpace(refresh.RefreshToken) ? account.RefreshToken : refresh.RefreshToken;
-        Persist(registry, account, access, me.DomainsCreditRemaining, me.BirthDate,
-            RefineState(account.AccountState, me.StatusType), refreshToken);
-        _log?.LogInformation("Recheck {Email}: ok, crédit={Credit}", account.Email, me.DomainsCreditRemaining);
-        return (true, me.DomainsCreditRemaining is not null, false);
+            if (me.Success)
+            {
+                // Reachable: refresh credit + birth, refine status (EXPIRE/CUSTOM), and keep a rotated refresh token.
+                var refreshToken = string.IsNullOrWhiteSpace(refresh.RefreshToken) ? account.RefreshToken : refresh.RefreshToken;
+                Persist(registry, account, access, me.DomainsCreditRemaining, me.BirthDate,
+                    RefineState(account.AccountState, me.StatusType), refreshToken);
+                _log?.LogInformation("Recheck {Email}: ok, crédit={Credit}", account.Email, me.DomainsCreditRemaining);
+                return (true, me.DomainsCreditRemaining is not null, false);
+            }
+
+            if (meTry < 2) await Task.Delay(TimeSpan.FromSeconds(1 + meTry), ct).ConfigureAwait(false);
+        }
+
+        return (false, false, false); // 3 failed /me → couldn't verify → leave the account as-is (no false downgrade)
     }
 
     /// <summary>Attempts to reactivate a user-reversible suspension (RECUP) via
