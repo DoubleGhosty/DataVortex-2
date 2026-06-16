@@ -244,13 +244,18 @@ public sealed class AccountTestRegistry : IAccountTestRegistry
         // also contain SUSPEND/SUSPICIOUS, which IsBadState matches.
         200 when IsRecoverableState(accountState) => "RECUP",
         200 when IsBadState(accountState) => "BAN",
-        // An ACTIVE account spent to 0 AND aged 18+ has no more credit coming → EXPIRE. A minor spent to 0 keeps
-        // VALIDE (the GRANT can still grow at 18). Only an explicit 0 demotes; null credit / unknown age → VALIDE.
+        // Expired opportunity (ex_beneficiary / aged-out): the credit is no longer usable → EXPIRE, even if a stale
+        // remaining shows > 0. Checked before the credit rule below.
+        200 when IsExpiredState(accountState) => "EXPIRE",
+        // Usable credit (and not banned/recoverable/expired) = VALIDE, WHATEVER the statusType — e.g. an "eligible"
+        // underage beneficiary that still has money to spend (GRANT_17_18 with remaining > 0).
+        200 when creditRemaining > 0m => "VALIDE",
+        // ACTIVE spent to 0 AND aged 18+ has no more credit coming → EXPIRE. A minor spent to 0 stays VALIDE (the
+        // GRANT can still grow at 18). Only an explicit 0 demotes; null credit / unknown age → VALIDE.
         200 when string.Equals(accountState, "ACTIVE", StringComparison.OrdinalIgnoreCase) && creditRemaining == 0m && IsAdult(birthDate) => "EXPIRE",
         200 when string.Equals(accountState, "ACTIVE", StringComparison.OrdinalIgnoreCase) => "VALIDE",
         200 when string.Equals(accountState, "INACTIVE", StringComparison.OrdinalIgnoreCase) => "INACTIVE",
-        200 when IsExpiredState(accountState) => "EXPIRE",
-        200 => "CUSTOM", // incl. still-eligible non_eligible
+        200 => "CUSTOM", // incl. still-eligible non_eligible / eligible without credit
         // A 400 carrying a reason code: a "bad" code (e.g. ACCOUNT_DELETED / ACCOUNT_ANONYMIZED) is BAN; any other
         // recognised code (e.g. EMAIL_NOT_VALIDATED) is CUSTOM; a bare 400 is a wrong password → INVALIDE.
         400 when IsRecoverableState(accountState) => "RECUP",

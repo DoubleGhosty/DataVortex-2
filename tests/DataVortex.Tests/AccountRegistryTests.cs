@@ -223,6 +223,18 @@ public sealed class AccountRegistryTests : IDisposable
         Assert.Equal("VALIDE", AccountTestRegistry.Categorize(200, "ACTIVE", 30000m, adult)); // has credit → valid
     }
 
+    [Fact]
+    public void Categorize_usable_credit_is_VALIDE_regardless_of_status()
+    {
+        var adult = DateTime.UtcNow.AddYears(-20).ToString("yyyy-MM-dd");
+        // "eligible" underage beneficiary that still has money to spend → VALIDE (credit wins over the eligible status)
+        Assert.Equal("VALIDE", AccountTestRegistry.Categorize(200, "eligible", 3225m, adult));
+        // same status but no credit → CUSTOM (not yet activated)
+        Assert.Equal("CUSTOM", AccountTestRegistry.Categorize(200, "eligible", null, adult));
+        // expired deposit wins even if a stale remaining shows > 0 → EXPIRE
+        Assert.Equal("EXPIRE", AccountTestRegistry.Categorize(200, "ex_beneficiary", 1000m, adult));
+    }
+
     [Theory]
     [InlineData("ACTIVE", "beneficiary", "ACTIVE")]                 // normal eligible → stays VALIDE
     [InlineData("ACTIVE", "ex_beneficiary", "ex_beneficiary")]     // → EXPIRE

@@ -27,13 +27,16 @@ public sealed record CredentialEntry(
         // Kept in sync with AccountTestRegistry.Categorize (RECUP checked before BAN — its strings contain SUSPEND/SUSPICIOUS).
         200 when IsRecoverableState(AccountState) => "RECUP",
         200 when IsBadState(AccountState) => "BAN",
+        // Expired opportunity (ex_beneficiary / aged-out) → EXPIRE, even if a stale remaining shows > 0.
+        200 when IsExpiredState(AccountState) => "EXPIRE",
+        // Usable credit wins over statusType (e.g. an "eligible" underage beneficiary with money to spend) → VALIDE.
+        200 when Credit > 0m => "VALIDE",
         // ACTIVE spent to 0 AND 18+ → EXPIRE (no more credit coming); a minor spent to 0 stays VALIDE (grant grows
         // at 18). null credit / unknown age → VALIDE.
         200 when string.Equals(AccountState, "ACTIVE", StringComparison.OrdinalIgnoreCase) && Credit == 0m && IsAdult(BirthDate) => "EXPIRE",
         200 when string.Equals(AccountState, "ACTIVE", StringComparison.OrdinalIgnoreCase) => "VALIDE",
         200 when string.Equals(AccountState, "INACTIVE", StringComparison.OrdinalIgnoreCase) => "INACTIVE",
-        200 when IsExpiredState(AccountState) => "EXPIRE",
-        200 => "CUSTOM", // incl. still-eligible non_eligible
+        200 => "CUSTOM", // incl. still-eligible non_eligible / eligible without credit
         400 when IsRecoverableState(AccountState) => "RECUP",
         400 when IsBadState(AccountState) => "BAN",                // e.g. ACCOUNT_DELETED / ACCOUNT_ANONYMIZED
         400 when !string.IsNullOrEmpty(AccountState) => "CUSTOM",  // e.g. EMAIL_NOT_VALIDATED
