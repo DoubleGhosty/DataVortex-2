@@ -246,6 +246,44 @@ VALUES ($k,$e,$p,$u,$s,$sc,$st,$cat,$cr,$bd,$m,$t,$at,$rt);";
         finally { _writeLock.Release(); }
     }
 
+    public int RecategorizeAccounts(Func<int, string?, string> categorize)
+    {
+        _writeLock.Wait();
+        try
+        {
+            // Read every (status, state, current category), recompute, and collect only the rows that changed.
+            var updates = new List<(string Key, string Category)>();
+            using (var read = _writeConn.CreateCommand())
+            {
+                read.CommandText = "SELECT Key, StatusCode, AccountState, COALESCE(Category,'') FROM accounts;";
+                using var reader = read.ExecuteReader();
+                while (reader.Read())
+                {
+                    var key = reader.GetString(0);
+                    var status = reader.GetInt32(1);
+                    var state = reader.IsDBNull(2) ? null : reader.GetString(2);
+                    var current = reader.GetString(3);
+                    var fresh = categorize(status, state);
+                    if (!string.Equals(fresh, current, StringComparison.Ordinal)) updates.Add((key, fresh));
+                }
+            }
+            if (updates.Count == 0) return 0;
+
+            using var tx = _writeConn.BeginTransaction();
+            using (var cmd = _writeConn.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = "UPDATE accounts SET Category=$cat WHERE Key=$k;";
+                var pc = cmd.CreateParameter(); pc.ParameterName = "$cat"; cmd.Parameters.Add(pc);
+                var pk = cmd.CreateParameter(); pk.ParameterName = "$k"; cmd.Parameters.Add(pk);
+                foreach (var (key, cat) in updates) { pc.Value = cat; pk.Value = key; cmd.ExecuteNonQuery(); }
+            }
+            tx.Commit();
+            return updates.Count;
+        }
+        finally { _writeLock.Release(); }
+    }
+
     public IReadOnlyList<AccountRecord> LoadAccountsToRecheck()
         => QueryAccounts(
             // Every account that is NOT a wrong password (INVALIDE) and still holds a refresh token — i.e. all

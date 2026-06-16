@@ -111,6 +111,24 @@ public sealed class AccountRegistryTests : IDisposable
     }
 
     [Fact]
+    public void RecategorizeAccounts_reclassifies_stale_rows_from_the_current_rules()
+    {
+        var (_, storage) = New();
+        var now = DateTime.UtcNow;
+        // Rows written under the OLD rules: a reversible suspension stored as BAN, an INACTIVE stored as CUSTOM.
+        storage.UpsertAccount(new AccountRecord("k1", "recup@x", "p", null, true, 200, "SUSPENDED_UPON_USER_REQUEST", "BAN", null, null, null, now, "a", "r"));
+        storage.UpsertAccount(new AccountRecord("k2", "inact@x", "p", null, true, 200, "INACTIVE", "CUSTOM", null, null, null, now, "a", "r"));
+        storage.UpsertAccount(new AccountRecord("k3", "ok@x", "p", null, true, 200, "ACTIVE", "VALIDE", null, null, null, now, "a", "r")); // unchanged
+
+        var changed = storage.RecategorizeAccounts(AccountTestRegistry.Categorize);
+
+        Assert.Equal(2, changed); // only the two stale rows
+        Assert.Single(storage.SearchAccounts(null, new[] { "RECUP" }));
+        Assert.Single(storage.SearchAccounts(null, new[] { "INACTIVE" }));
+        Assert.Equal(0, storage.RecategorizeAccounts(AccountTestRegistry.Categorize)); // idempotent
+    }
+
+    [Fact]
     public void Reset_forgets_all_accounts_so_they_can_be_retested()
     {
         var (paths, storage) = New();
@@ -170,17 +188,21 @@ public sealed class AccountRegistryTests : IDisposable
 
     [Theory]
     [InlineData(200, "ACTIVE", "VALIDE")]
-    [InlineData(200, "SUSPENDED", "BAN")]
-    [InlineData(200, "SUSPENDED_UPON_USER_REQUEST", "BAN")]
-    [InlineData(200, "SUSPICIOUS_LOGIN_REPORTED_BY_USER", "BAN")]
+    [InlineData(200, "SUSPENDED", "BAN")]                                   // hard fraud/admin suspension
+    [InlineData(200, "SUSPENDED_UPON_USER_REQUEST", "RECUP")]               // user-reversible → recoverable
+    [InlineData(200, "SUSPICIOUS_LOGIN_REPORTED_BY_USER", "RECUP")]         // reversible via email link → recoverable
     [InlineData(200, "DELETED", "BAN")]
+    [InlineData(200, "ANONYMIZED", "BAN")]                                  // RGPD anonymized = irreversible
+    [InlineData(200, "WAITING_FOR_ANONYMIZATION", "BAN")]                   // pending anonymization = blocked
+    [InlineData(200, "INACTIVE", "INACTIVE")]                               // generic inactive = own bucket
     [InlineData(200, "SOMETHING_ELSE", "CUSTOM")]
     [InlineData(400, null, "INVALIDE")]                       // bare 400 = wrong password
     [InlineData(400, "EMAIL_NOT_VALIDATED", "CUSTOM")]        // 400 with a non-bad reason code = custom
     [InlineData(400, "ACCOUNT_DELETED", "BAN")]               // 400 with a "deleted" code = ban
+    [InlineData(400, "ACCOUNT_ANONYMIZED", "BAN")]            // 400 with an "anonymized" code = ban
     [InlineData(200, "ex_beneficiary", "EXPIRE")]            // /me ex-beneficiary = expired credit
     [InlineData(200, "non_eligible", "CUSTOM")]              // /me non-eligible = custom
-    public void Categorize_maps_suspended_states_to_BAN(int code, string? state, string expected)
+    public void Categorize_maps_account_states_to_categories(int code, string? state, string expected)
         => Assert.Equal(expected, AccountTestRegistry.Categorize(code, state));
 
     [Theory]
@@ -188,6 +210,7 @@ public sealed class AccountRegistryTests : IDisposable
     [InlineData("ACTIVE", "ex_beneficiary", "ex_beneficiary")]     // → EXPIRE
     [InlineData("ACTIVE", "non_eligible", "non_eligible")]         // → CUSTOM
     [InlineData("SUSPENDED", "ex_beneficiary", "SUSPENDED")]       // bad sign-in state wins (BAN)
+    [InlineData("SUSPENDED_UPON_USER_REQUEST", "ex_beneficiary", "SUSPENDED_UPON_USER_REQUEST")] // recoverable wins (RECUP)
     [InlineData("ACTIVE", null, "ACTIVE")]
     public void RefineState_applies_me_status(string? signin, string? me, string? expected)
         => Assert.Equal(expected, AccountTester.RefineState(signin, me));
@@ -195,6 +218,7 @@ public sealed class AccountRegistryTests : IDisposable
     [Theory]
     [InlineData("{\"code\":\"EMAIL_NOT_VALIDATED\",\"general\":[\"L'email n'a pas été validé.\"]}", "EMAIL_NOT_VALIDATED")]
     [InlineData("{\"code\":\"ACCOUNT_DELETED\",\"general\":[\"Le compte a été supprimé\"]}", "ACCOUNT_DELETED")]
+    [InlineData("{\"code\":\"ACCOUNT_ANONYMIZED\",\"general\":[\"Le compte a été anonymisé\"]}", "ACCOUNT_ANONYMIZED")]
     [InlineData("{\"general\":[\"Identifiant ou Mot de passe incorrect\"]}", null)] // wrong password is not a definitive code
     [InlineData("{\"token\":[\"trust score too low\"]}", null)]                     // captcha trust → retry
     [InlineData("", null)]

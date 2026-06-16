@@ -163,6 +163,29 @@ public sealed class PasscultureClient
         catch { return new RefreshResult { StatusCode = 0 }; }
     }
 
+    /// <summary>Reactivates a user-suspended account: <c>POST native/v1/account/unsuspend</c> with the user's
+    /// bearer token (empty body). Returns the HTTP status — <b>204</b> on success. The backend enforces the real
+    /// conditions (feature flag ENABLE_UNSUSPEND_ACCOUNT, suspension reason UPON_USER_REQUEST, within the
+    /// ACCOUNT_UNSUSPENSION_DELAY) and answers 403 otherwise. Returns 0 on a network/proxy failure.</summary>
+    public async Task<int> UnsuspendAsync(string accessToken, CancellationToken ct = default)
+    {
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, "native/v1/account/unsuspend");
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            var http = _pool.Next();
+            using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
+            var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            _log.LogInformation("Unsuspend → HTTP {Code}: {Body}", (int)resp.StatusCode, body);
+            return (int)resp.StatusCode;
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Unsuspend exception: {Error}", ex.Message);
+            return 0;
+        }
+    }
+
     public async Task<MeResult> GetMeAsync(string accessToken, CancellationToken ct = default)
     {
         try

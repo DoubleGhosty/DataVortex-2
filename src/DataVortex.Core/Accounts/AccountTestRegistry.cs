@@ -150,6 +150,14 @@ public sealed class AccountTestRegistry : IAccountTestRegistry
         if (stored.Count > 0)
         {
             foreach (var a in stored) _tested[a.Key] = ToEntry(a);
+            // Re-derive the stored Category column under the latest rules (e.g. RECUP/INACTIVE/ANONYM added later),
+            // so existing rows reclassify on the spot — no backend call, no captcha.
+            try
+            {
+                var changed = _storage.RecategorizeAccounts(Categorize);
+                if (changed > 0) _log.LogInformation("Account registry recategorized {Count} row(s) under the latest rules", changed);
+            }
+            catch (Exception ex) { _log.LogWarning(ex, "Account recategorization failed"); }
             _log.LogInformation("Account registry loaded: {Count} known account(s)", _tested.Count);
             return;
         }
@@ -226,25 +234,43 @@ public sealed class AccountTestRegistry : IAccountTestRegistry
     };
 
     /// <summary>Mirror of <c>CredentialEntry.Category</c> (keep both in sync), computed at write time so the UI
-    /// can filter in SQL. A suspended/suspicious/deleted state counts as BAN.</summary>
+    /// can filter in SQL. A user-reversible suspension is RECUP; a hard suspended/suspicious/deleted/anonymized
+    /// state is BAN; a generic inactive account is INACTIVE.</summary>
     public static string Categorize(int statusCode, string? accountState) => statusCode switch
     {
+        // A user-reversible suspension (UPON_USER_REQUEST / SUSPICIOUS_LOGIN_REPORTED_BY_USER) is NOT a hard ban:
+        // we hold the login, so it can be reactivated → its own RECUP bucket. Checked first because those strings
+        // also contain SUSPEND/SUSPICIOUS, which IsBadState matches.
+        200 when IsRecoverableState(accountState) => "RECUP",
         200 when IsBadState(accountState) => "BAN",
         200 when string.Equals(accountState, "ACTIVE", StringComparison.OrdinalIgnoreCase) => "VALIDE",
+        200 when string.Equals(accountState, "INACTIVE", StringComparison.OrdinalIgnoreCase) => "INACTIVE",
         200 when string.Equals(accountState, "ex_beneficiary", StringComparison.OrdinalIgnoreCase) => "EXPIRE",
         200 => "CUSTOM", // incl. non_eligible
-        // A 400 carrying a reason code: a "bad" code (e.g. ACCOUNT_DELETED) is BAN; any other recognised
-        // code (e.g. EMAIL_NOT_VALIDATED) is CUSTOM; a bare 400 is a wrong password → INVALIDE.
+        // A 400 carrying a reason code: a "bad" code (e.g. ACCOUNT_DELETED / ACCOUNT_ANONYMIZED) is BAN; any other
+        // recognised code (e.g. EMAIL_NOT_VALIDATED) is CUSTOM; a bare 400 is a wrong password → INVALIDE.
+        400 when IsRecoverableState(accountState) => "RECUP",
         400 when IsBadState(accountState) => "BAN",
         400 when !string.IsNullOrEmpty(accountState) => "CUSTOM",
         400 => "INVALIDE",
         _ => ""
     };
 
-    /// <summary>Account states that mean the account is no longer usable (suspended/suspicious/deleted).</summary>
+    /// <summary>Account states that mean the account is permanently unusable: hard-suspended (fraud/admin),
+    /// suspicious, deleted, or (waiting-for-)anonymized. Reversible user suspensions are excluded — see
+    /// <see cref="IsRecoverableState"/> (checked before this in <see cref="Categorize"/>).</summary>
     public static bool IsBadState(string? state) =>
         state is not null && (
             state.Contains("SUSPEND", StringComparison.OrdinalIgnoreCase) ||
             state.Contains("SUSPICIOUS", StringComparison.OrdinalIgnoreCase) ||
-            state.Contains("DELET", StringComparison.OrdinalIgnoreCase));
+            state.Contains("DELET", StringComparison.OrdinalIgnoreCase) ||
+            state.Contains("ANONYM", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>User-reversible suspensions: the account can still sign in (allow_inactive) and be reactivated —
+    /// UPON_USER_REQUEST via <c>POST /account/unsuspend</c>, a suspicious-login report via the emailed link. Kept
+    /// distinct from a hard fraud/admin/deleted ban → RECUP, not BAN.</summary>
+    public static bool IsRecoverableState(string? state) =>
+        state is not null && (
+            state.Contains("UPON_USER_REQUEST", StringComparison.OrdinalIgnoreCase) ||
+            state.Contains("SUSPICIOUS_LOGIN_REPORTED_BY_USER", StringComparison.OrdinalIgnoreCase));
 }

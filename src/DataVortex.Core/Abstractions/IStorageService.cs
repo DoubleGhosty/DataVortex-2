@@ -60,4 +60,7 @@ public interface IStorageService
     IReadOnlyList<AccountRecord> LoadAccountsToRecheck();
     /// <summary>Deletes every stored account (used by a full re-test from scratch).</summary>
     void ClearAccounts();
+    /// <summary>Re-derives the stored Category column for every account from the current rules (no backend call),
+    /// so rows classified under older logic reclassify on the spot. Returns the number of rows changed.</summary>
+    int RecategorizeAccounts(Func<int, string?, string> categorize);
 }

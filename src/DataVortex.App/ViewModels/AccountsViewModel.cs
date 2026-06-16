@@ -46,6 +46,12 @@ public sealed partial class AccountsViewModel : ObservableObject
     private int _countExpire;
     public int CountExpire { get => _countExpire; set => SetProperty(ref _countExpire, value); }
 
+    private int _countRecup;
+    public int CountRecup { get => _countRecup; set => SetProperty(ref _countRecup, value); }
+
+    private int _countInactive;
+    public int CountInactive { get => _countInactive; set => SetProperty(ref _countInactive, value); }
+
     private int _countRetry;
     public int CountRetry { get => _countRetry; set => SetProperty(ref _countRetry, value); }
 
@@ -61,6 +67,12 @@ public sealed partial class AccountsViewModel : ObservableObject
 
     private bool _showExpire = true;
     public bool ShowExpire { get => _showExpire; set { if (SetProperty(ref _showExpire, value)) ResetAndRefresh(); } }
+
+    private bool _showRecup = true;
+    public bool ShowRecup { get => _showRecup; set { if (SetProperty(ref _showRecup, value)) ResetAndRefresh(); } }
+
+    private bool _showInactive = true;
+    public bool ShowInactive { get => _showInactive; set { if (SetProperty(ref _showInactive, value)) ResetAndRefresh(); } }
 
     // ---- Search + pagination (indexed SQL, so the grid never loads the whole store) ----
     private const int PageSize = 200;
@@ -95,6 +107,8 @@ public sealed partial class AccountsViewModel : ObservableObject
         if (ShowBan) cats.Add("BAN");
         if (ShowCustom) cats.Add("CUSTOM");
         if (ShowExpire) cats.Add("EXPIRE");
+        if (ShowRecup) cats.Add("RECUP");
+        if (ShowInactive) cats.Add("INACTIVE");
         return cats;
     }
 
@@ -179,6 +193,8 @@ public sealed partial class AccountsViewModel : ObservableObject
             CountBan = counts.FirstOrDefault(c => c.Category == "BAN")?.Count ?? 0;
             CountCustom = counts.FirstOrDefault(c => c.Category == "CUSTOM")?.Count ?? 0;
             CountExpire = counts.FirstOrDefault(c => c.Category == "EXPIRE")?.Count ?? 0;
+            CountRecup = counts.FirstOrDefault(c => c.Category == "RECUP")?.Count ?? 0;
+            CountInactive = counts.FirstOrDefault(c => c.Category == "INACTIVE")?.Count ?? 0;
         });
     }
 
@@ -224,6 +240,64 @@ public sealed partial class AccountsViewModel : ObservableObject
             StatusText = "Échec de l'ouverture de session : " + ex.Message;
         }
     }
+
+    /// <summary>Folds a grid row back into an <see cref="AccountRecord"/> so the tester can act on it (reactivate).</summary>
+    private static AccountRecord ToAccountRecord(CredentialEntry c) => new(
+        AccountKey.Of(c.Username, c.Password), c.Username ?? "", c.Password ?? "", c.Url,
+        c.TestSuccess ?? false, c.StatusCode ?? 0, c.AccountState,
+        AccountTestRegistry.Categorize(c.StatusCode ?? 0, c.AccountState),
+        c.Credit, c.BirthDate, c.TestMessage, c.TestedUtc ?? DateTime.UtcNow, c.AccessToken, c.RefreshToken);
+
+    /// <summary>Reactivates one RECUP account (user-reversible suspension) via the unsuspend endpoint: refresh
+    /// token first (0 captcha), sign-in fallback otherwise. On success it becomes VALIDE again.</summary>
+    [RelayCommand]
+    private Task ReactivateAccountAsync(CredentialEntry? entry) => RunCheckerAsync(async ct =>
+    {
+        if (entry is null) return;
+        _ui.Post(() => StatusText = $"Réactivation de {entry.Username}…");
+        var (_, message) = await AccountTester.TryUnsuspendAsync(_passClient, _accounts, ToAccountRecord(entry), ct);
+        _ui.Post(() => { StatusText = message; Refresh(); });
+    });
+
+    /// <summary>Tries to reactivate every RECUP account. Uses the refresh token first (0 captcha); a captcha is
+    /// only spent when the refresh token has expired. The backend silently refuses the ones outside the delay.</summary>
+    [RelayCommand]
+    private Task ReactivateAllRecupAsync() => RunCheckerAsync(async ct =>
+    {
+        var recup = await Task.Run(() => _storage.SearchAccounts(null, new[] { "RECUP" }, int.MaxValue, 0), ct);
+        if (recup.Count == 0) { _ui.Post(() => StatusText = "Aucun compte RECUP à réactiver."); return; }
+
+        if (!_dialogs.Confirm(
+                $"Tenter de réactiver {recup.Count} compte(s) RECUP ?\n\n" +
+                "• Le refresh token est utilisé en priorité (0 captcha).\n" +
+                "• Un captcha n'est consommé que si le refresh a expiré.\n" +
+                "• Le backend refuse les comptes hors délai / non éligibles.",
+                "Réactiver les comptes RECUP"))
+        {
+            _ui.Post(() => StatusText = "Réactivation annulée.");
+            return;
+        }
+
+        _ui.Post(() => StatusText = $"Réactivation de {recup.Count} compte(s) RECUP…");
+        await Task.Run(async () =>
+        {
+            int ok = 0, done = 0;
+            await Parallel.ForEachAsync(recup,
+                new ParallelOptions { MaxDegreeOfParallelism = 5, CancellationToken = ct },
+                async (a, token) =>
+                {
+                    var (success, _) = await AccountTester.TryUnsuspendAsync(_passClient, _accounts, a, token);
+                    if (success) Interlocked.Increment(ref ok);
+                    int d = Interlocked.Increment(ref done);
+                    if (d % 5 == 0 || d == recup.Count)
+                    {
+                        int o = Volatile.Read(ref ok);
+                        _ui.Post(() => StatusText = $"Réactivation : {d}/{recup.Count} — {o} réactivé(s)");
+                    }
+                });
+            _ui.Post(() => { StatusText = $"Terminé : {ok}/{recup.Count} compte(s) réactivé(s)."; Refresh(); });
+        }, ct);
+    });
 
     [RelayCommand]
     private Task TestAccountsAsync() => RunCheckerAsync(async ct =>

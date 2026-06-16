@@ -202,6 +202,66 @@ public static class AccountTester
         return (true, me.DomainsCreditRemaining is not null, false);
     }
 
+    /// <summary>Attempts to reactivate a user-reversible suspension (RECUP) via
+    /// <c>POST /native/v1/account/unsuspend</c>. A suspended-UPON_USER_REQUEST account can still authenticate, so
+    /// we first mint an access token from the stored refresh token (zero captcha); if that fails we fall back to a
+    /// fresh sign-in (one captcha). On success (204) the account is re-read and persisted as ACTIVE → it moves to
+    /// VALIDE. The backend enforces the real conditions (feature flag, reason = UPON_USER_REQUEST, within the
+    /// delay) and answers 403 otherwise — in which case the account is left as RECUP.</summary>
+    public static async Task<(bool ok, string message)> TryUnsuspendAsync(
+        PasscultureClient passClient, IAccountTestRegistry registry, AccountRecord account, CancellationToken ct = default)
+    {
+        // 1) Get an access token — refresh-token path first (no captcha).
+        string? access = null, refreshToken = account.RefreshToken;
+        if (!string.IsNullOrEmpty(account.RefreshToken))
+        {
+            var r = await passClient.RefreshAccessTokenAsync(account.RefreshToken!, ct).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(r.AccessToken))
+            {
+                access = r.AccessToken;
+                if (!string.IsNullOrWhiteSpace(r.RefreshToken)) refreshToken = r.RefreshToken;
+            }
+        }
+
+        // 2) Fall back to a real sign-in (one captcha) — a reversible suspension still signs in (allow_inactive).
+        if (string.IsNullOrWhiteSpace(access))
+        {
+            var captcha = await passClient.SolveCaptchaAsync(ct).ConfigureAwait(false);
+            if (captcha is null) return (false, $"{account.Email} : captcha non résolu — réactivation impossible.");
+            var signin = await passClient.SignInAsync(account.Email, account.Password, captcha, ct).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(signin.AccessToken))
+            {
+                access = signin.AccessToken;
+                if (!string.IsNullOrWhiteSpace(signin.RefreshToken)) refreshToken = signin.RefreshToken;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(access))
+            return (false, $"{account.Email} : impossible d'obtenir un token (refresh expiré ?).");
+
+        // 3) Reactivate, then re-read /me and persist as ACTIVE so the account becomes VALIDE with fresh credit.
+        var status = await passClient.UnsuspendAsync(access!, ct).ConfigureAwait(false);
+        if (status is 200 or 204)
+        {
+            decimal? credit = account.Credit;
+            string? birth = account.BirthDate;
+            try
+            {
+                var me = await passClient.GetMeAsync(access!, ct).ConfigureAwait(false);
+                if (me.Success) { credit = me.DomainsCreditRemaining; birth = me.BirthDate; }
+            }
+            catch { /* best-effort */ }
+            Persist(registry, account, access, credit, birth, "ACTIVE", refreshToken);
+            _log?.LogInformation("Unsuspend {Email}: réactivé (HTTP {Code})", account.Email, status);
+            return (true, $"{account.Email} : réactivé ✔");
+        }
+
+        _log?.LogWarning("Unsuspend {Email}: refusé (HTTP {Code})", account.Email, status);
+        return (false, status == 403
+            ? $"{account.Email} : réactivation refusée (403 — feature désactivée, hors délai, ou suspension non éligible)."
+            : $"{account.Email} : réactivation échouée (HTTP {status}).");
+    }
+
     private static void Persist(IAccountTestRegistry registry, AccountRecord a, string? access,
         decimal? credit, string? birth, string? accountState, string? refreshToken = null)
     {
@@ -226,7 +286,8 @@ public static class AccountTester
     /// state (suspended/etc.) is kept as-is. Returns the state to store so the category resolves correctly.</summary>
     public static string? RefineState(string? signinState, string? meStatusType)
     {
-        if (AccountTestRegistry.IsBadState(signinState)) return signinState;
+        // A bad (BAN) or user-reversible (RECUP) sign-in state is authoritative — never let /me override it.
+        if (AccountTestRegistry.IsBadState(signinState) || AccountTestRegistry.IsRecoverableState(signinState)) return signinState;
         if (string.Equals(meStatusType, "ex_beneficiary", StringComparison.OrdinalIgnoreCase)) return "ex_beneficiary";
         if (string.Equals(meStatusType, "non_eligible", StringComparison.OrdinalIgnoreCase)) return "non_eligible";
         return signinState;
@@ -237,7 +298,7 @@ public static class AccountTester
     /// <summary>Recognised definitive (non-valid) 400 reason codes — stored instead of retried forever. The
     /// final category is decided by <see cref="AccountTestRegistry.Categorize"/> from the code stored as the
     /// account state (e.g. ACCOUNT_DELETED → BAN, EMAIL_NOT_VALIDATED → CUSTOM).</summary>
-    private static readonly string[] Definitive400Codes = { "EMAIL_NOT_VALIDATED", "ACCOUNT_DELETED" };
+    private static readonly string[] Definitive400Codes = { "EMAIL_NOT_VALIDATED", "ACCOUNT_DELETED", "ACCOUNT_ANONYMIZED" };
 
     /// <summary>Returns the matched definitive-400 code when the body is a recognised non-retryable 400,
     /// otherwise null (→ retry).</summary>
