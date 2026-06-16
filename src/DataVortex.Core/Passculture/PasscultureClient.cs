@@ -159,9 +159,12 @@ public sealed class PasscultureClient
                 }
                 catch { /* unparseable body */ }
             }
+            _log.LogDebug("Refresh [{Code}] accessToken={HasToken} (len={Len}) rotated={Rotated}: {Body}",
+                (int)resp.StatusCode, !string.IsNullOrEmpty(token), token?.Length ?? 0,
+                !string.IsNullOrEmpty(newRefresh), Truncate(s, 160));
             return new RefreshResult { AccessToken = token, RefreshToken = newRefresh, StatusCode = (int)resp.StatusCode };
         }
-        catch { return new RefreshResult { StatusCode = 0 }; }
+        catch (Exception ex) { _log.LogDebug(ex, "Refresh exception: {Error}", ex.Message); return new RefreshResult { StatusCode = 0 }; }
     }
 
     /// <summary>Reactivates a user-suspended account: <c>POST native/v1/account/unsuspend</c> with the user's
@@ -198,7 +201,8 @@ public sealed class PasscultureClient
             var s = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             var me = ParseMe(s, (int)resp.StatusCode, resp.IsSuccessStatusCode);
             if (!me.Success)
-                _log.LogWarning("GetMe [{Code}] réponse inattendue (pas un /me): {Body}", (int)resp.StatusCode, Truncate(s, 300));
+                _log.LogWarning("GetMe [{Code}] réponse inattendue (pas un /me) [tok.len={Len}]: {Body}",
+                    (int)resp.StatusCode, accessToken?.Length ?? 0, Truncate(s, 300));
             else
                 _log.LogDebug("GetMe [{Code}] ok: statusType={Status} crédit={Credit}", me.StatusCode, me.StatusType, me.DomainsCreditRemaining);
             return me;
