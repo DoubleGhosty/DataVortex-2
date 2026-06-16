@@ -196,31 +196,12 @@ public sealed class PasscultureClient
             var http = _pool.Next();
             using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
             var s = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            try
-            {
-                using var doc = JsonDocument.Parse(s);
-                var root = doc.RootElement;
-                decimal? credit = null;
-                string? birth = null;
-                if (root.TryGetProperty("domainsCredit", out var dc) && dc.TryGetProperty("all", out var all) && all.TryGetProperty("remaining", out var rem))
-                {
-                    if (rem.TryGetDecimal(out var d)) credit = d;
-                }
-                if (root.TryGetProperty("birthDate", out var bd)) birth = bd.GetString();
-                string? statusType = null;
-                if (root.TryGetProperty("status", out var st) && st.ValueKind == JsonValueKind.Object
-                    && st.TryGetProperty("statusType", out var stt))
-                    statusType = stt.GetString();
-                DateTime? eligEnd = null;
-                if (root.TryGetProperty("eligibilityEndDatetime", out var ee) && ee.ValueKind == JsonValueKind.String
-                    && DateTimeOffset.TryParse(ee.GetString(), out var eeo))
-                    eligEnd = eeo.UtcDateTime;
-                return new MeResult { Success = resp.IsSuccessStatusCode, StatusCode = (int)resp.StatusCode, DomainsCreditRemaining = credit, BirthDate = birth, StatusType = statusType, EligibilityEnd = eligEnd };
-            }
-            catch
-            {
-                return new MeResult { Success = resp.IsSuccessStatusCode, StatusCode = (int)resp.StatusCode };
-            }
+            var me = ParseMe(s, (int)resp.StatusCode, resp.IsSuccessStatusCode);
+            if (!me.Success)
+                _log.LogWarning("GetMe [{Code}] réponse inattendue (pas un /me): {Body}", (int)resp.StatusCode, Truncate(s, 300));
+            else
+                _log.LogDebug("GetMe [{Code}] ok: statusType={Status} crédit={Credit}", me.StatusCode, me.StatusType, me.DomainsCreditRemaining);
+            return me;
         }
         catch (Exception ex)
         {
@@ -228,4 +209,46 @@ public sealed class PasscultureClient
             return new MeResult { Success = false };
         }
     }
+
+    /// <summary>Parses a <c>/me</c> response body into a <see cref="MeResult"/>. A usable read requires an HTTP
+    /// success AND a JSON object carrying the account identity (<c>id</c>/<c>email</c>); a non-200, an unparseable
+    /// body, or a 200 that is not a /me (proxy interstitial / error JSON) yields <c>Success=false</c>. Every nested
+    /// field is read defensively — <c>domainsCredit</c> is JSON <c>null</c> for non-beneficiaries, and without the
+    /// ValueKind guards the nested lookup would throw and drop the status (misclassifying the account as VALIDE).</summary>
+    public static MeResult ParseMe(string? body, int statusCode, bool isSuccess)
+    {
+        JsonElement root = default;
+        bool parsed = false;
+        try { using var doc = JsonDocument.Parse(body ?? ""); root = doc.RootElement.Clone(); parsed = true; }
+        catch { /* body is not JSON */ }
+
+        bool looksLikeMe = parsed && root.ValueKind == JsonValueKind.Object
+            && (root.TryGetProperty("id", out _) || root.TryGetProperty("email", out _));
+        if (!isSuccess || !looksLikeMe)
+            return new MeResult { Success = false, StatusCode = statusCode };
+
+        decimal? credit = null;
+        if (root.TryGetProperty("domainsCredit", out var dc) && dc.ValueKind == JsonValueKind.Object
+            && dc.TryGetProperty("all", out var all) && all.ValueKind == JsonValueKind.Object
+            && all.TryGetProperty("remaining", out var rem) && rem.TryGetDecimal(out var d))
+            credit = d;
+
+        string? birth = root.TryGetProperty("birthDate", out var bd) ? bd.GetString() : null;
+
+        string? statusType = null;
+        if (root.TryGetProperty("status", out var st) && st.ValueKind == JsonValueKind.Object
+            && st.TryGetProperty("statusType", out var stt))
+            statusType = stt.GetString();
+
+        DateTime? eligEnd = null;
+        if (root.TryGetProperty("eligibilityEndDatetime", out var ee) && ee.ValueKind == JsonValueKind.String
+            && DateTimeOffset.TryParse(ee.GetString(), out var eeo))
+            eligEnd = eeo.UtcDateTime;
+
+        return new MeResult { Success = true, StatusCode = statusCode, DomainsCreditRemaining = credit, BirthDate = birth, StatusType = statusType, EligibilityEnd = eligEnd };
+    }
+
+    /// <summary>Shortens a response body for logging (keeps the live log readable).</summary>
+    private static string Truncate(string? s, int max)
+        => string.IsNullOrEmpty(s) ? "" : (s.Length <= max ? s : s.Substring(0, max) + "…");
 }

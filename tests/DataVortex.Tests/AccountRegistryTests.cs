@@ -255,6 +255,43 @@ public sealed class AccountRegistryTests : IDisposable
     public void Definitive400Code_detects_recognised_definitive_400s(string? raw, string? expected)
         => Assert.Equal(expected, AccountTester.Definitive400Code(raw));
 
+    [Fact]
+    public void ParseMe_handles_null_domainsCredit_without_dropping_the_status()
+    {
+        // Non-beneficiary /me: domainsCredit is JSON null — must NOT crash the parse (the old bug dropped the
+        // status → the account was misclassified VALIDE instead of CUSTOM/EXPIRE).
+        const string body = """
+        {"id":123,"email":"x@y.z","birthDate":"2006-01-16","domainsCredit":null,
+         "eligibilityEndDatetime":"2025-01-15T23:00:00Z","status":{"statusType":"non_eligible"}}
+        """;
+        var me = PasscultureClient.ParseMe(body, 200, isSuccess: true);
+
+        Assert.True(me.Success);
+        Assert.Equal("non_eligible", me.StatusType);          // status is read, not lost
+        Assert.Null(me.DomainsCreditRemaining);               // no deposit → null, not a crash
+        Assert.Equal(new DateTime(2025, 1, 15, 23, 0, 0, DateTimeKind.Utc), me.EligibilityEnd);
+    }
+
+    [Fact]
+    public void ParseMe_reads_a_beneficiary_with_spent_credit()
+    {
+        const string body = """
+        {"id":1,"email":"a@b.c","domainsCredit":{"all":{"initial":30000,"remaining":0}},"status":{"statusType":"beneficiary"}}
+        """;
+        var me = PasscultureClient.ParseMe(body, 200, isSuccess: true);
+        Assert.True(me.Success);
+        Assert.Equal(0m, me.DomainsCreditRemaining);
+        Assert.Equal("beneficiary", me.StatusType);
+    }
+
+    [Theory]
+    [InlineData("<html>blocked by proxy</html>", 200, true)]   // 200 but not JSON (interstitial)
+    [InlineData("{\"code\":\"FORBIDDEN\"}", 403, false)]       // error JSON, non-200
+    [InlineData("{\"foo\":\"bar\"}", 200, true)]               // JSON 200 but not a /me (no id/email)
+    [InlineData("", 200, true)]                                 // empty body
+    public void ParseMe_rejects_non_me_bodies(string body, int code, bool isSuccess)
+        => Assert.False(PasscultureClient.ParseMe(body, code, isSuccess).Success);
+
     public void Dispose()
     {
         foreach (var s in _stores) { try { s.Dispose(); } catch { /* ignore */ } }
