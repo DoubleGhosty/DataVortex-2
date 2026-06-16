@@ -45,9 +45,9 @@
 
                         <Border Width="1" Margin="14,2,14,2" Background="{DynamicResource Divider}"/>
 
-                        <Button Content="Revérifier (0 captcha)" Style="{StaticResource Ghost}" Command="{Binding RefreshCreditsCommand}"
+                        <Button Content="Revérifier" Style="{StaticResource Ghost}" Command="{Binding RefreshCreditsCommand}"
                                 Margin="0,0,8,0"
-                                ToolTip="Revérifie tous les comptes non-INVALIDE (crédit, statut EXPIRE, faux BAN) via le refresh token, sans captcha."/>
+                                ToolTip="Revérifie tous les comptes non-INVALIDE via le refresh token (0 captcha). Si le refresh est rejeté (401, mot de passe peut-être changé), un vrai signin AVEC captcha est tenté → reclasse le compte ou le marque INVALIDE."/>
                         <Button Content="Réactiver RECUP" Style="{StaticResource Ghost}" Command="{Binding ReactivateAllRecupCommand}"
                                 Margin="0,0,8,0"
                                 ToolTip="Tente de réactiver tous les comptes RECUP (suspension réversible) via /account/unsuspend. Refresh token d'abord (0 captcha)."/>

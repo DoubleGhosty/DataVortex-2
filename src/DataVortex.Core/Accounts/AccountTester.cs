@@ -88,61 +88,19 @@ public static class AccountTester
                 _log?.LogInformation("Check {Email}: POST signin → backend Passculture (essai {Attempt})", cred.Username, attempt + 1);
                 var signin = await passClient.SignInAsync(cred.Username ?? "", cred.Password ?? "", captcha, ct).ConfigureAwait(false);
 
-                // Classify the response. Definitive outcomes (valid, wrong password, or a recognised custom 400
-                // such as EMAIL_NOT_VALIDATED) are stored; everything else (429 / 5xx / 0 / low-trust 400) retries.
-                var verdict = signin.StatusCode == 200 ? SignInVerdict.Valid
-                            : signin.StatusCode == 400 ? Classify400(signin.Raw)
-                            : SignInVerdict.Retry;
-
-                if (verdict != SignInVerdict.Retry)
+                // Classify the response (incl. reading /me for a valid one). A definitive outcome (valid, wrong
+                // password, or a recognised custom 400 such as EMAIL_NOT_VALIDATED) is stored; null = non-definitive
+                // (429 / 5xx / 0 / low-trust 400) → retry.
+                var result = await BuildResultAsync(passClient, signin, ct).ConfigureAwait(false);
+                if (result is not null)
                 {
-                    var success = verdict == SignInVerdict.Valid;
-                    decimal? credit = null;
-                    string? birth = null;
-                    string? meStatus = null;
-                    DateTime? meEligEnd = null;
-                    if (success && signin.AccessToken is not null)
-                    {
-                        // /me is best-effort but transient failures used to leave a valid account with a null
-                        // credit forever, so retry it a few times before giving up.
-                        for (int meTry = 0; meTry < 3; meTry++)
-                        {
-                            try
-                            {
-                                var me = await passClient.GetMeAsync(signin.AccessToken, ct).ConfigureAwait(false);
-                                if (me.Success) { credit = me.DomainsCreditRemaining; birth = me.BirthDate; meStatus = me.StatusType; meEligEnd = me.EligibilityEnd; break; }
-                            }
-                            catch { /* transient */ }
-                            if (meTry < 2) await Task.Delay(TimeSpan.FromSeconds(1 + meTry), ct).ConfigureAwait(false);
-                        }
-                    }
-
-                    // Valid: the /me status refines the category (ex_beneficiary / aged-out non_eligible → EXPIRE,
-                    // still-eligible non_eligible → CUSTOM). A custom 400 carries its code (EMAIL_NOT_VALIDATED →
-                    // CUSTOM); a wrong-password 400 → INVALIDE.
-                    var state = verdict switch
-                    {
-                        SignInVerdict.Valid => RefineState(signin.AccountState, meStatus, meEligEnd),
-                        SignInVerdict.Definitive => Definitive400Code(signin.Raw),
-                        _ => null
-                    };
-
                     _log?.LogInformation("Check {Email}: ← HTTP {Code} → {Verdict}{Credit}",
                         cred.Username, signin.StatusCode,
-                        verdict switch
-                        {
-                            SignInVerdict.Valid => "VALIDE",
-                            SignInVerdict.WrongPassword => "mot de passe incorrect",
-                            _ => state ?? "?"
-                        },
-                        success ? $" (crédit={credit})" : "");
-
-                    var result = new AccountTestResult(
-                        success, signin.StatusCode, signin.AccessToken, signin.RefreshToken,
-                        credit, birth, signin.Raw, DateTime.UtcNow, state);
+                        result.Success ? "VALIDE" : (result.AccountState ?? (signin.StatusCode == 400 ? "mot de passe incorrect" : "?")),
+                        result.Success ? $" (crédit={result.Credit})" : "");
                     registry.Complete(cred.Username, cred.Password, result);
                     var applied = Apply(cred, result);
-                    if (success) AccountFound?.Invoke(applied); // notifier filters by category/credit
+                    if (result.Success) AccountFound?.Invoke(applied); // notifier filters by category/credit
                     return applied;
                 }
 
@@ -172,12 +130,57 @@ public static class AccountTester
         }
     }
 
-    /// <summary>Re-checks an already-tested account by reusing its stored tokens — no captcha, no sign-in. It
-    /// re-verifies the <b>status</b> (an account may have gone ACTIVE → SUSPENDED) and refreshes credit + birth
-    /// date. Mints a fresh access token from the refresh token; a rejection while the refresh token has NOT yet
-    /// expired, or a <c>/me</c> 401/403, is treated as a suspension. Transient failures leave the account
-    /// untouched (retryable later). Returns whether it was updated, whether a credit was read, and whether it
-    /// was downgraded to suspended.</summary>
+    /// <summary>Classifies a sign-in response into a stored outcome: maps the verdict, reads <c>/me</c> (retried)
+    /// for a valid one, and folds the /me status into the category (EXPIRE/CUSTOM/…). Returns <c>null</c> when the
+    /// response is non-definitive (429 / 5xx / 0 / low-trust 400) and should be retried. Shared by the live checker
+    /// and the recheck's sign-in escalation so both classify identically.</summary>
+    private static async Task<AccountTestResult?> BuildResultAsync(PasscultureClient passClient, SignInResult signin, CancellationToken ct)
+    {
+        var verdict = signin.StatusCode == 200 ? SignInVerdict.Valid
+                    : signin.StatusCode == 400 ? Classify400(signin.Raw)
+                    : SignInVerdict.Retry;
+        if (verdict == SignInVerdict.Retry) return null;
+
+        var success = verdict == SignInVerdict.Valid;
+        decimal? credit = null;
+        string? birth = null;
+        string? meStatus = null;
+        DateTime? meEligEnd = null;
+        if (success && signin.AccessToken is not null)
+        {
+            // /me is best-effort but transient failures used to leave a valid account with a null credit forever,
+            // so retry it a few times before giving up.
+            for (int meTry = 0; meTry < 3; meTry++)
+            {
+                try
+                {
+                    var me = await passClient.GetMeAsync(signin.AccessToken, ct).ConfigureAwait(false);
+                    if (me.Success) { credit = me.DomainsCreditRemaining; birth = me.BirthDate; meStatus = me.StatusType; meEligEnd = me.EligibilityEnd; break; }
+                }
+                catch { /* transient */ }
+                if (meTry < 2) await Task.Delay(TimeSpan.FromSeconds(1 + meTry), ct).ConfigureAwait(false);
+            }
+        }
+
+        // Valid: the /me status refines the category (ex_beneficiary / aged-out non_eligible → EXPIRE,
+        // still-eligible non_eligible / eligible → CUSTOM). A custom 400 carries its code (EMAIL_NOT_VALIDATED →
+        // CUSTOM); a wrong-password 400 → INVALIDE.
+        var state = verdict switch
+        {
+            SignInVerdict.Valid => RefineState(signin.AccountState, meStatus, meEligEnd),
+            SignInVerdict.Definitive => Definitive400Code(signin.Raw),
+            _ => null
+        };
+        return new AccountTestResult(success, signin.StatusCode, signin.AccessToken, signin.RefreshToken,
+            credit, birth, signin.Raw, DateTime.UtcNow, state);
+    }
+
+    /// <summary>Re-checks an already-tested account. First the <b>0-captcha</b> path: mint a fresh access token from
+    /// the refresh token and read <c>/me</c> (retried, rotating proxies) to refresh credit/status (EXPIRE/CUSTOM…).
+    /// If the refresh token is <b>rejected (HTTP 401)</b> — typically because the <b>password changed</b> — it
+    /// escalates to a real sign-in (<b>1 captcha</b>): a success revives the account with fresh tokens + correct
+    /// category, a wrong-password 400 marks it INVALIDE. Other failures (network / 5xx / proxy 403) leave the
+    /// account untouched (no captcha). Returns (updated, gotCredit, suspended/bad-state).</summary>
     public static async Task<(bool updated, bool gotCredit, bool suspended)> RefreshCreditAsync(
         PasscultureClient passClient, IAccountTestRegistry registry, AccountRecord account, CancellationToken ct = default)
     {
@@ -185,36 +188,44 @@ public static class AccountTester
 
         var refresh = await passClient.RefreshAccessTokenAsync(account.RefreshToken!, ct).ConfigureAwait(false);
 
-        // A 401/403 here is NOT a reliable ban signal: it's usually a blocked proxy IP (403 served by the
-        // proxy/CDN) or a rotated refresh token, NOT a real suspension. So we never reclassify to SUSPENDED on
-        // an auth failure — only a successful /me updates the account; anything else leaves it untouched.
-        var access = refresh.AccessToken ?? account.AccessToken;
-        if (string.IsNullOrEmpty(access)) return (false, false, false);
-
-        // /me can fail transiently (flaky proxy IP / 429 / 5xx), so retry it a few times like the live flow does —
-        // a single-shot /me used to leave reachable accounts stuck in their old category (e.g. a non_eligible kept
-        // as VALIDE). Still zero captcha. An auth failure (401/403) is NOT a ban signal: after the retries we just
-        // leave the account untouched rather than downgrade it.
-        for (int meTry = 0; meTry < 3; meTry++)
+        // 0-captcha path — only ever /me with a FRESHLY minted token (the stale stored one just yields 401 spam).
+        // /me is retried (each attempt rotates to the next proxy) so a single blocked IP doesn't sink the recheck.
+        if (!string.IsNullOrWhiteSpace(refresh.AccessToken))
         {
-            MeResult me;
-            try { me = await passClient.GetMeAsync(access!, ct).ConfigureAwait(false); }
-            catch { me = new MeResult { Success = false }; }
-
-            if (me.Success)
+            for (int meTry = 0; meTry < 3; meTry++)
             {
-                // Reachable: refresh credit + birth, refine status (EXPIRE/CUSTOM), and keep a rotated refresh token.
-                var refreshToken = string.IsNullOrWhiteSpace(refresh.RefreshToken) ? account.RefreshToken : refresh.RefreshToken;
-                Persist(registry, account, access, me.DomainsCreditRemaining, me.BirthDate,
-                    RefineState(account.AccountState, me.StatusType, me.EligibilityEnd), refreshToken);
-                _log?.LogInformation("Recheck {Email}: ok, crédit={Credit}", account.Email, me.DomainsCreditRemaining);
-                return (true, me.DomainsCreditRemaining is not null, false);
-            }
+                MeResult me;
+                try { me = await passClient.GetMeAsync(refresh.AccessToken!, ct).ConfigureAwait(false); }
+                catch { me = new MeResult { Success = false }; }
 
-            if (meTry < 2) await Task.Delay(TimeSpan.FromSeconds(1 + meTry), ct).ConfigureAwait(false);
+                if (me.Success)
+                {
+                    var refreshToken = string.IsNullOrWhiteSpace(refresh.RefreshToken) ? account.RefreshToken : refresh.RefreshToken;
+                    Persist(registry, account, refresh.AccessToken, me.DomainsCreditRemaining, me.BirthDate,
+                        RefineState(account.AccountState, me.StatusType, me.EligibilityEnd), refreshToken);
+                    _log?.LogInformation("Recheck {Email}: ok, crédit={Credit}", account.Email, me.DomainsCreditRemaining);
+                    return (true, me.DomainsCreditRemaining is not null, false);
+                }
+
+                if (meTry < 2) await Task.Delay(TimeSpan.FromSeconds(1 + meTry), ct).ConfigureAwait(false);
+            }
         }
 
-        return (false, false, false); // 3 failed /me → couldn't verify → leave the account as-is (no false downgrade)
+        // Refresh token rejected (401) → likely invalidated by a PASSWORD CHANGE → escalate to a real sign-in
+        // (1 captcha). Other failures (network / 5xx / proxy 403) are left untouched, no captcha spent.
+        if (refresh.StatusCode != 401) return (false, false, false);
+
+        _log?.LogInformation("Recheck {Email}: refresh rejeté (401) → vrai signin (captcha) — mot de passe peut-être changé", account.Email);
+        var captcha = await passClient.SolveCaptchaAsync(ct).ConfigureAwait(false);
+        if (captcha is null) return (false, false, false);
+        var signin = await passClient.SignInAsync(account.Email, account.Password, captcha, ct).ConfigureAwait(false);
+        var result = await BuildResultAsync(passClient, signin, ct).ConfigureAwait(false);
+        if (result is null) return (false, false, false); // non-definitive (e.g. low-trust captcha) → retry next run
+
+        registry.Complete(account.Email, account.Password, result);
+        _log?.LogInformation("Recheck {Email}: signin HTTP {Code} → {Outcome}", account.Email, result.StatusCode,
+            result.Success ? $"reclassé (crédit={result.Credit})" : (result.AccountState ?? "INVALIDE (mot de passe incorrect)"));
+        return (true, result.Credit is not null, AccountTestRegistry.IsBadState(result.AccountState));
     }
 
     /// <summary>Attempts to reactivate a user-reversible suspension (RECUP) via
