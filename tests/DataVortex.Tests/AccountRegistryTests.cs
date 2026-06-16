@@ -208,6 +208,7 @@ public sealed class AccountRegistryTests : IDisposable
     [InlineData(200, "ex_beneficiary", "EXPIRE")]            // /me ex-beneficiary = expired credit
     [InlineData(200, "eligibility_expired", "EXPIRE")]       // aged-out non_eligible (window closed) = expired
     [InlineData(200, "non_eligible", "CUSTOM")]              // still-eligible non_eligible = custom
+    [InlineData(200, "eligible", "CUSTOM")]                  // eligible-not-activated (no deposit yet) = custom
     public void Categorize_maps_account_states_to_categories(int code, string? state, string expected)
         => Assert.Equal(expected, AccountTestRegistry.Categorize(code, state));
 
@@ -228,6 +229,7 @@ public sealed class AccountRegistryTests : IDisposable
     [InlineData("ACTIVE", "non_eligible", "non_eligible")]         // → CUSTOM
     [InlineData("SUSPENDED", "ex_beneficiary", "SUSPENDED")]       // bad sign-in state wins (BAN)
     [InlineData("SUSPENDED_UPON_USER_REQUEST", "ex_beneficiary", "SUSPENDED_UPON_USER_REQUEST")] // recoverable wins (RECUP)
+    [InlineData("ACTIVE", "eligible", "eligible")]                 // eligible-not-activated → CUSTOM marker
     [InlineData("ACTIVE", null, "ACTIVE")]
     public void RefineState_applies_me_status(string? signin, string? me, string? expected)
         => Assert.Equal(expected, AccountTester.RefineState(signin, me));

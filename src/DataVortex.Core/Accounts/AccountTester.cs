@@ -308,6 +308,9 @@ public static class AccountTester
             // non_eligible + eligibility window already CLOSED (aged out, never an active deposit) = expired
             // opportunity → EXPIRE. Still within / before the window (e.g. a minor not eligible yet) → CUSTOM.
             return eligibilityEnd is { } end && end < DateTime.UtcNow ? "eligibility_expired" : "non_eligible";
+        // "eligible" = can still become a beneficiary but hasn't activated a deposit (no credit yet, ID/subscription
+        // to complete) → not VALIDE → CUSTOM. Stored as its own marker so Categorize routes it to CUSTOM.
+        if (string.Equals(meStatusType, "eligible", StringComparison.OrdinalIgnoreCase)) return "eligible";
         return signinState;
     }
 
