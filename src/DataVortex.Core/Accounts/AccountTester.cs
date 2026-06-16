@@ -177,10 +177,10 @@ public static class AccountTester
 
     /// <summary>Re-checks an already-tested account. First the <b>0-captcha</b> path: mint a fresh access token from
     /// the refresh token and read <c>/me</c> (retried, rotating proxies) to refresh credit/status (EXPIRE/CUSTOM…).
-    /// If the refresh token is <b>rejected (HTTP 401)</b> — typically because the <b>password changed</b> — it
-    /// escalates to a real sign-in (<b>1 captcha</b>): a success revives the account with fresh tokens + correct
-    /// category, a wrong-password 400 marks it INVALIDE. Other failures (network / 5xx / proxy 403) leave the
-    /// account untouched (no captcha). Returns (updated, gotCredit, suspended/bad-state).</summary>
+    /// On any <b>401</b> — the refresh token rejected, or <c>/me</c> rejecting a freshly-minted token — the account
+    /// is likely <b>password-changed</b>, so it escalates to a real sign-in (<b>1 captcha</b>): a success revives the
+    /// account with fresh tokens + correct category, a wrong-password 400 marks it INVALIDE. Other failures (network
+    /// / 5xx / proxy 403) leave the account untouched (no captcha). Returns (updated, gotCredit, suspended/bad-state).</summary>
     public static async Task<(bool updated, bool gotCredit, bool suspended)> RefreshCreditAsync(
         PasscultureClient passClient, IAccountTestRegistry registry, AccountRecord account, CancellationToken ct = default)
     {
@@ -190,6 +190,7 @@ public static class AccountTester
 
         // 0-captcha path — only ever /me with a FRESHLY minted token (the stale stored one just yields 401 spam).
         // /me is retried (each attempt rotates to the next proxy) so a single blocked IP doesn't sink the recheck.
+        bool meUnauthorized = false;
         if (!string.IsNullOrWhiteSpace(refresh.AccessToken))
         {
             for (int meTry = 0; meTry < 3; meTry++)
@@ -207,15 +208,22 @@ public static class AccountTester
                     return (true, me.DomainsCreditRemaining is not null, false);
                 }
 
+                // 401 = /me rejects this (valid, freshly minted) token — retrying won't change it, and it may mean
+                // the password changed → stop and escalate to a real sign-in.
+                if (me.StatusCode == 401) { meUnauthorized = true; break; }
+
                 if (meTry < 2) await Task.Delay(TimeSpan.FromSeconds(1 + meTry), ct).ConfigureAwait(false);
             }
         }
 
-        // Refresh token rejected (401) → likely invalidated by a PASSWORD CHANGE → escalate to a real sign-in
-        // (1 captcha). Other failures (network / 5xx / proxy 403) are left untouched, no captcha spent.
-        if (refresh.StatusCode != 401) return (false, false, false);
+        // A 401 anywhere — the refresh token rejected, OR /me rejecting a freshly-minted token — likely means the
+        // PASSWORD CHANGED (sessions invalidated) → escalate to a real sign-in (1 captcha): it revives + reclassifies
+        // the account, or marks it INVALIDE on a wrong-password 400. Other failures (network / 5xx / proxy 403) are
+        // left untouched, no captcha spent.
+        if (refresh.StatusCode != 401 && !meUnauthorized) return (false, false, false);
 
-        _log?.LogInformation("Recheck {Email}: refresh rejeté (401) → vrai signin (captcha) — mot de passe peut-être changé", account.Email);
+        _log?.LogInformation("Recheck {Email}: 401 (refresh={RefreshCode}, /me-401={MeUnauthorized}) → vrai signin (captcha) — mot de passe peut-être changé",
+            account.Email, refresh.StatusCode, meUnauthorized);
         var captcha = await passClient.SolveCaptchaAsync(ct).ConfigureAwait(false);
         if (captcha is null) return (false, false, false);
         var signin = await passClient.SignInAsync(account.Email, account.Password, captcha, ct).ConfigureAwait(false);
