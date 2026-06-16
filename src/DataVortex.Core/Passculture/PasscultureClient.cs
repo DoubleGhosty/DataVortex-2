@@ -23,6 +23,7 @@ public sealed class MeResult
     public decimal? DomainsCreditRemaining { get; init; }
     public string? BirthDate { get; init; } // expected format: yyyy-MM-dd
     public string? StatusType { get; init; } // status.statusType e.g. "non_eligible", "ex_beneficiary"
+    public DateTime? EligibilityEnd { get; init; } // eligibilityEndDatetime (UTC); non_eligible past this = expired opportunity
 }
 
 /// <summary>Outcome of a refresh-token call: the new access token (when granted) and the HTTP status, so the
@@ -210,7 +211,11 @@ public sealed class PasscultureClient
                 if (root.TryGetProperty("status", out var st) && st.ValueKind == JsonValueKind.Object
                     && st.TryGetProperty("statusType", out var stt))
                     statusType = stt.GetString();
-                return new MeResult { Success = resp.IsSuccessStatusCode, StatusCode = (int)resp.StatusCode, DomainsCreditRemaining = credit, BirthDate = birth, StatusType = statusType };
+                DateTime? eligEnd = null;
+                if (root.TryGetProperty("eligibilityEndDatetime", out var ee) && ee.ValueKind == JsonValueKind.String
+                    && DateTimeOffset.TryParse(ee.GetString(), out var eeo))
+                    eligEnd = eeo.UtcDateTime;
+                return new MeResult { Success = resp.IsSuccessStatusCode, StatusCode = (int)resp.StatusCode, DomainsCreditRemaining = credit, BirthDate = birth, StatusType = statusType, EligibilityEnd = eligEnd };
             }
             catch
             {

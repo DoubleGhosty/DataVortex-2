@@ -29,8 +29,8 @@ public sealed record CredentialEntry(
         200 when IsBadState(AccountState) => "BAN",
         200 when string.Equals(AccountState, "ACTIVE", StringComparison.OrdinalIgnoreCase) => "VALIDE",
         200 when string.Equals(AccountState, "INACTIVE", StringComparison.OrdinalIgnoreCase) => "INACTIVE",
-        200 when string.Equals(AccountState, "ex_beneficiary", StringComparison.OrdinalIgnoreCase) => "EXPIRE",
-        200 => "CUSTOM", // incl. non_eligible
+        200 when IsExpiredState(AccountState) => "EXPIRE",
+        200 => "CUSTOM", // incl. still-eligible non_eligible
         400 when IsRecoverableState(AccountState) => "RECUP",
         400 when IsBadState(AccountState) => "BAN",                // e.g. ACCOUNT_DELETED / ACCOUNT_ANONYMIZED
         400 when !string.IsNullOrEmpty(AccountState) => "CUSTOM",  // e.g. EMAIL_NOT_VALIDATED
@@ -49,6 +49,11 @@ public sealed record CredentialEntry(
     private static bool IsRecoverableState(string? s) => s is not null && (
         s.Contains("UPON_USER_REQUEST", StringComparison.OrdinalIgnoreCase) ||
         s.Contains("SUSPICIOUS_LOGIN_REPORTED_BY_USER", StringComparison.OrdinalIgnoreCase));
+
+    // ex_beneficiary or the aged-out non_eligible marker → EXPIRE (mirror of AccountTestRegistry.IsExpiredState).
+    private static bool IsExpiredState(string? s) =>
+        string.Equals(s, "ex_beneficiary", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(s, "eligibility_expired", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Credit shown to the user: the backend value is in cents, so divide by 100 (29000 → 290).</summary>
     public decimal? CreditDisplay => Credit is null ? null : Credit / 100m;

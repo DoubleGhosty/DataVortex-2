@@ -100,6 +100,7 @@ public static class AccountTester
                     decimal? credit = null;
                     string? birth = null;
                     string? meStatus = null;
+                    DateTime? meEligEnd = null;
                     if (success && signin.AccessToken is not null)
                     {
                         // /me is best-effort but transient failures used to leave a valid account with a null
@@ -109,18 +110,19 @@ public static class AccountTester
                             try
                             {
                                 var me = await passClient.GetMeAsync(signin.AccessToken, ct).ConfigureAwait(false);
-                                if (me.Success) { credit = me.DomainsCreditRemaining; birth = me.BirthDate; meStatus = me.StatusType; break; }
+                                if (me.Success) { credit = me.DomainsCreditRemaining; birth = me.BirthDate; meStatus = me.StatusType; meEligEnd = me.EligibilityEnd; break; }
                             }
                             catch { /* transient */ }
                             if (meTry < 2) await Task.Delay(TimeSpan.FromSeconds(1 + meTry), ct).ConfigureAwait(false);
                         }
                     }
 
-                    // Valid: the /me status refines the category (ex_beneficiary → EXPIRE, non_eligible → CUSTOM).
-                    // A custom 400 carries its code (e.g. EMAIL_NOT_VALIDATED → CUSTOM); a wrong-password 400 → INVALIDE.
+                    // Valid: the /me status refines the category (ex_beneficiary / aged-out non_eligible → EXPIRE,
+                    // still-eligible non_eligible → CUSTOM). A custom 400 carries its code (EMAIL_NOT_VALIDATED →
+                    // CUSTOM); a wrong-password 400 → INVALIDE.
                     var state = verdict switch
                     {
-                        SignInVerdict.Valid => RefineState(signin.AccountState, meStatus),
+                        SignInVerdict.Valid => RefineState(signin.AccountState, meStatus, meEligEnd),
                         SignInVerdict.Definitive => Definitive400Code(signin.Raw),
                         _ => null
                     };
@@ -204,7 +206,7 @@ public static class AccountTester
                 // Reachable: refresh credit + birth, refine status (EXPIRE/CUSTOM), and keep a rotated refresh token.
                 var refreshToken = string.IsNullOrWhiteSpace(refresh.RefreshToken) ? account.RefreshToken : refresh.RefreshToken;
                 Persist(registry, account, access, me.DomainsCreditRemaining, me.BirthDate,
-                    RefineState(account.AccountState, me.StatusType), refreshToken);
+                    RefineState(account.AccountState, me.StatusType, me.EligibilityEnd), refreshToken);
                 _log?.LogInformation("Recheck {Email}: ok, crédit={Credit}", account.Email, me.DomainsCreditRemaining);
                 return (true, me.DomainsCreditRemaining is not null, false);
             }
@@ -297,12 +299,15 @@ public static class AccountTester
     /// <summary>Refines a valid sign-in's account state with the finer <c>/me</c> status: an ex-beneficiary's
     /// credit has expired (→ EXPIRE), a non-eligible account isn't a beneficiary (→ CUSTOM). A "bad" sign-in
     /// state (suspended/etc.) is kept as-is. Returns the state to store so the category resolves correctly.</summary>
-    public static string? RefineState(string? signinState, string? meStatusType)
+    public static string? RefineState(string? signinState, string? meStatusType, DateTime? eligibilityEnd = null)
     {
         // A bad (BAN) or user-reversible (RECUP) sign-in state is authoritative — never let /me override it.
         if (AccountTestRegistry.IsBadState(signinState) || AccountTestRegistry.IsRecoverableState(signinState)) return signinState;
         if (string.Equals(meStatusType, "ex_beneficiary", StringComparison.OrdinalIgnoreCase)) return "ex_beneficiary";
-        if (string.Equals(meStatusType, "non_eligible", StringComparison.OrdinalIgnoreCase)) return "non_eligible";
+        if (string.Equals(meStatusType, "non_eligible", StringComparison.OrdinalIgnoreCase))
+            // non_eligible + eligibility window already CLOSED (aged out, never an active deposit) = expired
+            // opportunity → EXPIRE. Still within / before the window (e.g. a minor not eligible yet) → CUSTOM.
+            return eligibilityEnd is { } end && end < DateTime.UtcNow ? "eligibility_expired" : "non_eligible";
         return signinState;
     }
 

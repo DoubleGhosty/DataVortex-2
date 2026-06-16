@@ -245,8 +245,8 @@ public sealed class AccountTestRegistry : IAccountTestRegistry
         200 when IsBadState(accountState) => "BAN",
         200 when string.Equals(accountState, "ACTIVE", StringComparison.OrdinalIgnoreCase) => "VALIDE",
         200 when string.Equals(accountState, "INACTIVE", StringComparison.OrdinalIgnoreCase) => "INACTIVE",
-        200 when string.Equals(accountState, "ex_beneficiary", StringComparison.OrdinalIgnoreCase) => "EXPIRE",
-        200 => "CUSTOM", // incl. non_eligible
+        200 when IsExpiredState(accountState) => "EXPIRE",
+        200 => "CUSTOM", // incl. still-eligible non_eligible
         // A 400 carrying a reason code: a "bad" code (e.g. ACCOUNT_DELETED / ACCOUNT_ANONYMIZED) is BAN; any other
         // recognised code (e.g. EMAIL_NOT_VALIDATED) is CUSTOM; a bare 400 is a wrong password → INVALIDE.
         400 when IsRecoverableState(accountState) => "RECUP",
@@ -273,4 +273,11 @@ public sealed class AccountTestRegistry : IAccountTestRegistry
         state is not null && (
             state.Contains("UPON_USER_REQUEST", StringComparison.OrdinalIgnoreCase) ||
             state.Contains("SUSPICIOUS_LOGIN_REPORTED_BY_USER", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Expired-opportunity states → EXPIRE: a real <c>ex_beneficiary</c> (had a deposit, now lapsed) and
+    /// the synthetic <c>eligibility_expired</c> marker (a <c>non_eligible</c> whose eligibility window has closed —
+    /// see <see cref="AccountTester.RefineState"/>).</summary>
+    public static bool IsExpiredState(string? state) =>
+        string.Equals(state, "ex_beneficiary", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(state, "eligibility_expired", StringComparison.OrdinalIgnoreCase);
 }

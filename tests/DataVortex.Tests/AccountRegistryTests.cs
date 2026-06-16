@@ -201,7 +201,8 @@ public sealed class AccountRegistryTests : IDisposable
     [InlineData(400, "ACCOUNT_DELETED", "BAN")]               // 400 with a "deleted" code = ban
     [InlineData(400, "ACCOUNT_ANONYMIZED", "BAN")]            // 400 with an "anonymized" code = ban
     [InlineData(200, "ex_beneficiary", "EXPIRE")]            // /me ex-beneficiary = expired credit
-    [InlineData(200, "non_eligible", "CUSTOM")]              // /me non-eligible = custom
+    [InlineData(200, "eligibility_expired", "EXPIRE")]       // aged-out non_eligible (window closed) = expired
+    [InlineData(200, "non_eligible", "CUSTOM")]              // still-eligible non_eligible = custom
     public void Categorize_maps_account_states_to_categories(int code, string? state, string expected)
         => Assert.Equal(expected, AccountTestRegistry.Categorize(code, state));
 
@@ -214,6 +215,16 @@ public sealed class AccountRegistryTests : IDisposable
     [InlineData("ACTIVE", null, "ACTIVE")]
     public void RefineState_applies_me_status(string? signin, string? me, string? expected)
         => Assert.Equal(expected, AccountTester.RefineState(signin, me));
+
+    [Fact]
+    public void RefineState_non_eligible_is_expired_only_when_the_window_has_closed()
+    {
+        var past = DateTime.UtcNow.AddDays(-1);
+        var future = DateTime.UtcNow.AddYears(1);
+        Assert.Equal("eligibility_expired", AccountTester.RefineState("ACTIVE", "non_eligible", past));    // aged out → EXPIRE
+        Assert.Equal("non_eligible", AccountTester.RefineState("ACTIVE", "non_eligible", future));         // still eligible later → CUSTOM
+        Assert.Equal("non_eligible", AccountTester.RefineState("ACTIVE", "non_eligible", null));           // unknown window → CUSTOM
+    }
 
     [Theory]
     [InlineData("{\"code\":\"EMAIL_NOT_VALIDATED\",\"general\":[\"L'email n'a pas été validé.\"]}", "EMAIL_NOT_VALIDATED")]
