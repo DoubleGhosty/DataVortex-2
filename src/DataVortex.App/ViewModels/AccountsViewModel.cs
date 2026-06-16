@@ -245,7 +245,7 @@ public sealed partial class AccountsViewModel : ObservableObject
     private static AccountRecord ToAccountRecord(CredentialEntry c) => new(
         AccountKey.Of(c.Username, c.Password), c.Username ?? "", c.Password ?? "", c.Url,
         c.TestSuccess ?? false, c.StatusCode ?? 0, c.AccountState,
-        AccountTestRegistry.Categorize(c.StatusCode ?? 0, c.AccountState),
+        AccountTestRegistry.Categorize(c.StatusCode ?? 0, c.AccountState, c.Credit, c.BirthDate),
         c.Credit, c.BirthDate, c.TestMessage, c.TestedUtc ?? DateTime.UtcNow, c.AccessToken, c.RefreshToken);
 
     /// <summary>Reactivates one RECUP account (user-reversible suspension) via the unsuspend endpoint: refresh

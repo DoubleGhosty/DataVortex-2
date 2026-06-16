@@ -27,6 +27,9 @@ public sealed record CredentialEntry(
         // Kept in sync with AccountTestRegistry.Categorize (RECUP checked before BAN — its strings contain SUSPEND/SUSPICIOUS).
         200 when IsRecoverableState(AccountState) => "RECUP",
         200 when IsBadState(AccountState) => "BAN",
+        // ACTIVE spent to 0 AND 18+ → EXPIRE (no more credit coming); a minor spent to 0 stays VALIDE (grant grows
+        // at 18). null credit / unknown age → VALIDE.
+        200 when string.Equals(AccountState, "ACTIVE", StringComparison.OrdinalIgnoreCase) && Credit == 0m && IsAdult(BirthDate) => "EXPIRE",
         200 when string.Equals(AccountState, "ACTIVE", StringComparison.OrdinalIgnoreCase) => "VALIDE",
         200 when string.Equals(AccountState, "INACTIVE", StringComparison.OrdinalIgnoreCase) => "INACTIVE",
         200 when IsExpiredState(AccountState) => "EXPIRE",
@@ -54,6 +57,16 @@ public sealed record CredentialEntry(
     private static bool IsExpiredState(string? s) =>
         string.Equals(s, "ex_beneficiary", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(s, "eligibility_expired", StringComparison.OrdinalIgnoreCase);
+
+    // 18+ check (mirror of AccountTestRegistry.IsAdult): unknown/unparseable date → false (never demote on a guess).
+    private static bool IsAdult(string? birthDate)
+    {
+        if (!DateTime.TryParse(birthDate, out var dob)) return false;
+        var today = DateTime.UtcNow.Date;
+        var age = today.Year - dob.Year;
+        if (dob.Date > today.AddYears(-age)) age--;
+        return age >= 18;
+    }
 
     /// <summary>Credit shown to the user: the backend value is in cents, so divide by 100 (29000 → 290).</summary>
     public decimal? CreditDisplay => Credit is null ? null : Credit / 100m;

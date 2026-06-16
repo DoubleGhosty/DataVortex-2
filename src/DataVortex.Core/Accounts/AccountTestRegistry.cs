@@ -219,7 +219,7 @@ public sealed class AccountTestRegistry : IAccountTestRegistry
         var r = e.Result;
         return new AccountRecord(
             key, e.Email, e.Password, e.Url,
-            r.Success, r.StatusCode, r.AccountState, Categorize(r.StatusCode, r.AccountState),
+            r.Success, r.StatusCode, r.AccountState, Categorize(r.StatusCode, r.AccountState, r.Credit, r.BirthDate),
             r.Credit, r.BirthDate, r.Message, r.TestedUtc == default ? DateTime.UtcNow : r.TestedUtc,
             r.AccessToken, r.RefreshToken);
     }
@@ -235,14 +235,18 @@ public sealed class AccountTestRegistry : IAccountTestRegistry
 
     /// <summary>Mirror of <c>CredentialEntry.Category</c> (keep both in sync), computed at write time so the UI
     /// can filter in SQL. A user-reversible suspension is RECUP; a hard suspended/suspicious/deleted/anonymized
-    /// state is BAN; a generic inactive account is INACTIVE.</summary>
-    public static string Categorize(int statusCode, string? accountState) => statusCode switch
+    /// state is BAN; a generic inactive account is INACTIVE; an ACTIVE adult spent to 0 credit is EXPIRE (a minor
+    /// spent to 0 stays VALIDE — the grant can still grow when they turn 18).</summary>
+    public static string Categorize(int statusCode, string? accountState, decimal? creditRemaining = null, string? birthDate = null) => statusCode switch
     {
         // A user-reversible suspension (UPON_USER_REQUEST / SUSPICIOUS_LOGIN_REPORTED_BY_USER) is NOT a hard ban:
         // we hold the login, so it can be reactivated → its own RECUP bucket. Checked first because those strings
         // also contain SUSPEND/SUSPICIOUS, which IsBadState matches.
         200 when IsRecoverableState(accountState) => "RECUP",
         200 when IsBadState(accountState) => "BAN",
+        // An ACTIVE account spent to 0 AND aged 18+ has no more credit coming → EXPIRE. A minor spent to 0 keeps
+        // VALIDE (the GRANT can still grow at 18). Only an explicit 0 demotes; null credit / unknown age → VALIDE.
+        200 when string.Equals(accountState, "ACTIVE", StringComparison.OrdinalIgnoreCase) && creditRemaining == 0m && IsAdult(birthDate) => "EXPIRE",
         200 when string.Equals(accountState, "ACTIVE", StringComparison.OrdinalIgnoreCase) => "VALIDE",
         200 when string.Equals(accountState, "INACTIVE", StringComparison.OrdinalIgnoreCase) => "INACTIVE",
         200 when IsExpiredState(accountState) => "EXPIRE",
@@ -280,4 +284,15 @@ public sealed class AccountTestRegistry : IAccountTestRegistry
     public static bool IsExpiredState(string? state) =>
         string.Equals(state, "ex_beneficiary", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(state, "eligibility_expired", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>True only when <paramref name="birthDate"/> ("yyyy-MM-dd") is known AND the person is 18+. An
+    /// unknown/unparseable date returns false, so a spent account is never demoted to EXPIRE on a guess.</summary>
+    public static bool IsAdult(string? birthDate)
+    {
+        if (!DateTime.TryParse(birthDate, out var dob)) return false;
+        var today = DateTime.UtcNow.Date;
+        var age = today.Year - dob.Year;
+        if (dob.Date > today.AddYears(-age)) age--;
+        return age >= 18;
+    }
 }

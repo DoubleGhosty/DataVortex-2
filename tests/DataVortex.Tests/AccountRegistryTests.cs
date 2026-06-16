@@ -118,13 +118,18 @@ public sealed class AccountRegistryTests : IDisposable
         // Rows written under the OLD rules: a reversible suspension stored as BAN, an INACTIVE stored as CUSTOM.
         storage.UpsertAccount(new AccountRecord("k1", "recup@x", "p", null, true, 200, "SUSPENDED_UPON_USER_REQUEST", "BAN", null, null, null, now, "a", "r"));
         storage.UpsertAccount(new AccountRecord("k2", "inact@x", "p", null, true, 200, "INACTIVE", "CUSTOM", null, null, null, now, "a", "r"));
-        storage.UpsertAccount(new AccountRecord("k3", "ok@x", "p", null, true, 200, "ACTIVE", "VALIDE", null, null, null, now, "a", "r")); // unchanged
+        var adultDob = DateTime.UtcNow.AddYears(-20).ToString("yyyy-MM-dd");
+        var minorDob = DateTime.UtcNow.AddYears(-15).ToString("yyyy-MM-dd");
+        storage.UpsertAccount(new AccountRecord("k4", "spent@x", "p", null, true, 200, "ACTIVE", "VALIDE", 0m, adultDob, null, now, "a", "r")); // adult spent to 0 → EXPIRE
+        storage.UpsertAccount(new AccountRecord("k5", "minor@x", "p", null, true, 200, "ACTIVE", "VALIDE", 0m, minorDob, null, now, "a", "r")); // minor spent to 0 → stays VALIDE
+        storage.UpsertAccount(new AccountRecord("k3", "ok@x", "p", null, true, 200, "ACTIVE", "VALIDE", 50m, null, null, now, "a", "r")); // has credit → unchanged
 
         var changed = storage.RecategorizeAccounts(AccountTestRegistry.Categorize);
 
-        Assert.Equal(2, changed); // only the two stale rows
+        Assert.Equal(3, changed); // recup, inactive, spent
         Assert.Single(storage.SearchAccounts(null, new[] { "RECUP" }));
         Assert.Single(storage.SearchAccounts(null, new[] { "INACTIVE" }));
+        Assert.Single(storage.SearchAccounts(null, new[] { "EXPIRE" }));
         Assert.Equal(0, storage.RecategorizeAccounts(AccountTestRegistry.Categorize)); // idempotent
     }
 
@@ -205,6 +210,17 @@ public sealed class AccountRegistryTests : IDisposable
     [InlineData(200, "non_eligible", "CUSTOM")]              // still-eligible non_eligible = custom
     public void Categorize_maps_account_states_to_categories(int code, string? state, string expected)
         => Assert.Equal(expected, AccountTestRegistry.Categorize(code, state));
+
+    [Fact]
+    public void Categorize_spent_active_account_expires_only_for_adults()
+    {
+        var adult = DateTime.UtcNow.AddYears(-20).ToString("yyyy-MM-dd");
+        var minor = DateTime.UtcNow.AddYears(-15).ToString("yyyy-MM-dd");
+        Assert.Equal("EXPIRE", AccountTestRegistry.Categorize(200, "ACTIVE", 0m, adult));     // 20yo spent → expired
+        Assert.Equal("VALIDE", AccountTestRegistry.Categorize(200, "ACTIVE", 0m, minor));     // 15yo spent → stays active (grant grows at 18)
+        Assert.Equal("VALIDE", AccountTestRegistry.Categorize(200, "ACTIVE", 0m, null));      // unknown age → don't demote
+        Assert.Equal("VALIDE", AccountTestRegistry.Categorize(200, "ACTIVE", 30000m, adult)); // has credit → valid
+    }
 
     [Theory]
     [InlineData("ACTIVE", "beneficiary", "ACTIVE")]                 // normal eligible → stays VALIDE

@@ -61,6 +61,8 @@ public interface IStorageService
     /// <summary>Deletes every stored account (used by a full re-test from scratch).</summary>
     void ClearAccounts();
     /// <summary>Re-derives the stored Category column for every account from the current rules (no backend call),
-    /// so rows classified under older logic reclassify on the spot. Returns the number of rows changed.</summary>
-    int RecategorizeAccounts(Func<int, string?, string> categorize);
+    /// so rows classified under older logic reclassify on the spot. The delegate gets (StatusCode, AccountState,
+    /// Credit, BirthDate) so credit/age-sensitive rules (e.g. ACTIVE adult spent to 0 → EXPIRE) apply too.
+    /// Returns rows changed.</summary>
+    int RecategorizeAccounts(Func<int, string?, decimal?, string?, string> categorize);
 }

@@ -246,24 +246,26 @@ VALUES ($k,$e,$p,$u,$s,$sc,$st,$cat,$cr,$bd,$m,$t,$at,$rt);";
         finally { _writeLock.Release(); }
     }
 
-    public int RecategorizeAccounts(Func<int, string?, string> categorize)
+    public int RecategorizeAccounts(Func<int, string?, decimal?, string?, string> categorize)
     {
         _writeLock.Wait();
         try
         {
-            // Read every (status, state, current category), recompute, and collect only the rows that changed.
+            // Read every (status, state, credit, birthdate, current category), recompute, keep only changed rows.
             var updates = new List<(string Key, string Category)>();
             using (var read = _writeConn.CreateCommand())
             {
-                read.CommandText = "SELECT Key, StatusCode, AccountState, COALESCE(Category,'') FROM accounts;";
+                read.CommandText = "SELECT Key, StatusCode, AccountState, Credit, BirthDate, COALESCE(Category,'') FROM accounts;";
                 using var reader = read.ExecuteReader();
                 while (reader.Read())
                 {
                     var key = reader.GetString(0);
                     var status = reader.GetInt32(1);
                     var state = reader.IsDBNull(2) ? null : reader.GetString(2);
-                    var current = reader.GetString(3);
-                    var fresh = categorize(status, state);
+                    decimal? credit = reader.IsDBNull(3) ? null : (decimal)reader.GetDouble(3);
+                    var birth = reader.IsDBNull(4) ? null : reader.GetString(4);
+                    var current = reader.GetString(5);
+                    var fresh = categorize(status, state, credit, birth);
                     if (!string.Equals(fresh, current, StringComparison.Ordinal)) updates.Add((key, fresh));
                 }
             }
