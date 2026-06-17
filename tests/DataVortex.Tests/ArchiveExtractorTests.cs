@@ -61,6 +61,29 @@ public sealed class ArchiveExtractorTests : IDisposable
     }
 
     [Fact]
+    public async Task Standalone_txt_is_scanned_even_when_its_name_lacks_the_keyword()
+    {
+        // Regression: a standalone .txt (downloaded because the user allowed the .txt extension) must be scanned
+        // for content even if its filename doesn't match the keyword matcher — otherwise ULP combolists named e.g.
+        // "123_combo.txt" were silently skipped and never tested.
+        var extractor = NewExtractor(); // defaults: ExtractOnlyMatchingTxt on, keyword "password"
+        var txt = Path.Combine(_dir, "123_combo.txt"); // name has NO "password"
+        await File.WriteAllTextAsync(txt,
+            "https://passculture.app/connexion:jane@gmail.com:Secr3t!\nhttps://netflix.com:x@y.fr:nope\n");
+
+        var creds = new List<CredentialEntry>();
+        var result = await extractor.ExtractTextFilesAsync(
+            txt, Path.Combine(_dir, "out"), messageText: null, onFileExtracted: null,
+            onTextEntry: (_, stream, _) => { creds.AddRange(CredentialScanner.ScanStream(stream)); return Task.CompletedTask; });
+
+        Assert.True(result.Success);
+        Assert.Single(result.ExtractedFiles);          // scanned despite the non-matching filename
+        var c = Assert.Single(creds);                  // only the passculture ULP line (netflix is out of scope)
+        Assert.Equal("jane@gmail.com", c.Username);
+        Assert.Equal("Secr3t!", c.Password);
+    }
+
+    [Fact]
     public async Task Disk_mode_writes_the_matching_txt()
     {
         var extractor = NewExtractor();

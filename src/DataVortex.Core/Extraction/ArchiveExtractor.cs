@@ -42,6 +42,10 @@ public sealed class ArchiveExtractor : IArchiveExtractor
         var kind = DetectKind(filePath);
         var matcher = new KeywordMatcher(_settings.Current.ExtractOnlyMatchingTxt, _settings.Current.ExtractKeywords);
         var name = Path.GetFileName(filePath);
+        // A STANDALONE .txt only reaches here because the user explicitly allowed its extension for download, so we
+        // scan its CONTENT regardless of the filename keyword matcher (that matcher is for picking relevant entries
+        // INSIDE archives). Without this, a combolist named e.g. "123_combo.txt" was skipped → ULP never scanned.
+        bool bypassMatcher = kind == ArchiveKind.PlainText;
 
         bool isEncrypted = false;
         string? password = null;
@@ -107,7 +111,7 @@ public sealed class ArchiveExtractor : IArchiveExtractor
         {
             var fileName = Path.GetFileName(entryName);
             if (string.IsNullOrWhiteSpace(fileName)) fileName = "file.txt";
-            if (matcher.Enabled && !matcher.MatchesText(fileName)) return;
+            if (!bypassMatcher && matcher.Enabled && !matcher.MatchesText(fileName)) return;
 
             try
             {
