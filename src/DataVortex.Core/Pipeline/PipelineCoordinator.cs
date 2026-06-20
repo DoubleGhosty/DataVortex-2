@@ -104,30 +104,38 @@ public sealed class PipelineCoordinator : IPipelineCoordinator, IDisposable
         ResumePendingDownloads(_cts.Token);
 
         // Background catch-up: test credentials in existing metadata that were never tested. Routed through
-        // the registry so an account is never sent to the backend twice (no wasted captchas).
+        // the registry so an account is never sent to the backend twice (no wasted captchas). Records are scanned
+        // in PARALLEL (the per-account gate in AccountTester enforces the real concurrency cap from settings), so a
+        // backlog of never-tested accounts is no longer retried one-by-one on launch.
         if (_passClient is not null)
         {
+            var client = _passClient;       // local keeps the non-null flow into the lambdas
+            var scanCt = _cts.Token;
             _ = Task.Run(async () =>
             {
                 try
                 {
-                    foreach (var r in _storage.LoadRecords())
-                    {
-                        if (r.Credentials is null || r.Credentials.Count == 0) continue;
-                        var changed = false;
-                        for (int i = 0; i < r.Credentials.Count; i++)
+                    var records = _storage.LoadRecords().Where(r => r.Credentials is { Count: > 0 }).ToList();
+                    await Parallel.ForEachAsync(records,
+                        new ParallelOptions { MaxDegreeOfParallelism = 10, CancellationToken = scanCt },
+                        async (r, token) =>
                         {
-                            var before = r.Credentials[i];
-                            var after = await AccountTester.TestOnceAsync(_passClient, _accounts, before).ConfigureAwait(false);
-                            if (!ReferenceEquals(before, after)) { r.Credentials[i] = after; changed = true; }
-                        }
-                        if (changed)
-                        {
-                            try { await _storage.SaveRecordAsync(r).ConfigureAwait(false); }
-                            catch (Exception ex) { _log.LogWarning(ex, "Failed to save updated metadata for {File}", r.OriginalFileName); }
-                        }
-                    }
+                            var creds = r.Credentials!;
+                            var changed = false;
+                            for (int i = 0; i < creds.Count; i++)
+                            {
+                                var before = creds[i];
+                                var after = await AccountTester.TestOnceAsync(client, _accounts, before, token).ConfigureAwait(false);
+                                if (!ReferenceEquals(before, after)) { creds[i] = after; changed = true; }
+                            }
+                            if (changed)
+                            {
+                                try { await _storage.SaveRecordAsync(r).ConfigureAwait(false); }
+                                catch (Exception ex) { _log.LogWarning(ex, "Failed to save updated metadata for {File}", r.OriginalFileName); }
+                            }
+                        }).ConfigureAwait(false);
                 }
+                catch (OperationCanceledException) { /* pipeline stopped */ }
                 catch (Exception ex)
                 {
                     _log.LogWarning(ex, "Background credentials scan failed");
