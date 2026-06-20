@@ -47,29 +47,32 @@ public sealed class PasscultureClient
         _log = log ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<PasscultureClient>.Instance;
     }
 
-    // The passculture backend rejects API calls (notably /me → 401) that don't carry the web-app headers a real
-    // browser sends — the app-version/platform/device-id/user-agent are validated server-side. We replicate the
-    // headers captured from a working passculture.app /me request so our requests are accepted like the browser's.
-    private const string AppVersion = "1.394.0";   // from passculture.app; bump if the API starts rejecting it
-    private const string CommitHash = "ab3ce90";
-    private const string WebUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
-    private static readonly string DeviceId = Guid.NewGuid().ToString(); // one stable "device" for the whole run
+    /// <summary>How long a proxy is benched after the backend rate-limits it (HTTP 429), so the next attempt
+    /// rotates to a different IP instead of hammering the throttled one.</summary>
+    private static readonly TimeSpan RateLimitBan = TimeSpan.FromMinutes(5);
 
-    /// <summary>Adds the passculture web-app headers (and the Bearer token, if any) so a request is accepted like
-    /// the real browser's — without these, <c>/me</c> answers 401 even with a valid token.</summary>
-    private static void ApplyHeaders(HttpRequestMessage req, string? bearer)
+    /// <summary>Adds the Bearer token when present. The backend authenticates on this alone — the extra
+    /// "web-app" headers we briefly sent (app-version/platform/device-id/…) turned out not to matter.</summary>
+    private static void ApplyAuth(HttpRequestMessage req, string? bearer)
     {
-        if (!string.IsNullOrEmpty(bearer)) req.Headers.TryAddWithoutValidation("authorization", "Bearer " + bearer);
-        req.Headers.TryAddWithoutValidation("accept", "*/*");
-        req.Headers.TryAddWithoutValidation("accept-language", "en-US,en;q=0.9");
-        req.Headers.TryAddWithoutValidation("app-version", AppVersion);
-        req.Headers.TryAddWithoutValidation("commit-hash", CommitHash);
-        req.Headers.TryAddWithoutValidation("device-id", DeviceId);
-        req.Headers.TryAddWithoutValidation("origin", "https://passculture.app");
-        req.Headers.TryAddWithoutValidation("platform", "web");
-        req.Headers.TryAddWithoutValidation("referer", "https://passculture.app/");
-        req.Headers.TryAddWithoutValidation("request-id", Guid.NewGuid().ToString());
-        req.Headers.TryAddWithoutValidation("user-agent", WebUserAgent);
+        if (!string.IsNullOrEmpty(bearer))
+            req.Headers.TryAddWithoutValidation("authorization", "Bearer " + bearer);
+    }
+
+    /// <summary>Sends a request through the next pooled proxy and, on an HTTP 429 (rate limit), benches that proxy
+    /// for <see cref="RateLimitBan"/> so the caller's retry rotates to a fresh IP. Returns the response; the caller
+    /// owns disposal.</summary>
+    private async Task<HttpResponseMessage> SendThroughPoolAsync(HttpRequestMessage req, CancellationToken ct)
+    {
+        var http = _pool.Next();
+        var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
+        if ((int)resp.StatusCode == 429)
+        {
+            _pool.Ban(http, RateLimitBan);
+            _log.LogWarning("Rate limit 429 sur {Path} → proxy mis en quarantaine {Min} min ({Avail} proxy(s) dispo)",
+                req.RequestUri, RateLimitBan.TotalMinutes, _pool.AvailableCount);
+        }
+        return resp;
     }
 
     /// <summary>
@@ -110,11 +113,9 @@ public sealed class PasscultureClient
                 }
                 catch { /* best-effort */ }
             }
-            var http = _pool.Next();
             _log.LogInformation("→ Passculture POST signin pour {Email}", identifier);
             using var sreq = new HttpRequestMessage(HttpMethod.Post, "native/v1/signin") { Content = content };
-            ApplyHeaders(sreq, null);
-            using var resp = await http.SendAsync(sreq, ct).ConfigureAwait(false);
+            using var resp = await SendThroughPoolAsync(sreq, ct).ConfigureAwait(false);
             var s = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             // Debug aid: show the raw login response body (HTTP code + email) in the live log.
             _log.LogInformation("Signin response [{Email}] HTTP {Code}: {Response}", identifier, (int)resp.StatusCode, s);
@@ -170,9 +171,8 @@ public sealed class PasscultureClient
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Post, "native/v1/refresh_access_token");
-            ApplyHeaders(req, refreshToken);
-            var http = _pool.Next();
-            using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
+            ApplyAuth(req, refreshToken);
+            using var resp = await SendThroughPoolAsync(req, ct).ConfigureAwait(false);
             var s = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             string? token = null, newRefresh = null;
             if (resp.IsSuccessStatusCode)
@@ -202,9 +202,8 @@ public sealed class PasscultureClient
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Post, "native/v1/account/unsuspend");
-            ApplyHeaders(req, accessToken);
-            var http = _pool.Next();
-            using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
+            ApplyAuth(req, accessToken);
+            using var resp = await SendThroughPoolAsync(req, ct).ConfigureAwait(false);
             var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             _log.LogInformation("Unsuspend → HTTP {Code}: {Body}", (int)resp.StatusCode, body);
             return (int)resp.StatusCode;
@@ -221,9 +220,8 @@ public sealed class PasscultureClient
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, "native/v1/me");
-            ApplyHeaders(req, accessToken);
-            var http = _pool.Next();
-            using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
+            ApplyAuth(req, accessToken);
+            using var resp = await SendThroughPoolAsync(req, ct).ConfigureAwait(false);
             var s = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             var me = ParseMe(s, (int)resp.StatusCode, resp.IsSuccessStatusCode);
             if (!me.Success)
