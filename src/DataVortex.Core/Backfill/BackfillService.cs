@@ -147,7 +147,7 @@ public sealed class BackfillService : IBackfillService, IDisposable
                     catch (OperationCanceledException) { throw; }
                     catch (Exception ex)
                     {
-                        _log.LogWarning(ex, "Backfill scan failed for {Channel}", title);
+                        _log.LogWarning("Backfill scan failed for {Channel}: {Error}", title, ex.Message);
                         await Task.Delay(10000, ct).ConfigureAwait(false);
                         continue;
                     }

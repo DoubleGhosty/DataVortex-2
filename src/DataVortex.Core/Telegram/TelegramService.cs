@@ -357,19 +357,39 @@ public sealed class TelegramService : ITelegramService, IDisposable
         };
         if (peer is null) return new HistoryPage(0, 0, offsetId, true, 0);
 
-        var history = await _client.Messages_GetHistory(peer, offset_id: offsetId, limit: Math.Clamp(pageSize, 1, 100)).ConfigureAwait(false);
-        var messages = history.Messages.OfType<Message>().ToList();
-        if (messages.Count == 0)
-            return new HistoryPage(0, 0, offsetId, true, history.Count);
-
-        int enqueued = 0;
-        foreach (var m in messages)
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            if (HandleMessage(m)) enqueued++;
+            var history = await _client.Messages_GetHistory(peer, offset_id: offsetId, limit: Math.Clamp(pageSize, 1, 100)).ConfigureAwait(false);
+            var messages = history.Messages.OfType<Message>().ToList();
+            if (messages.Count == 0)
+                return new HistoryPage(0, 0, offsetId, true, history.Count);
+
+            int enqueued = 0;
+            foreach (var m in messages)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (HandleMessage(m)) enqueued++;
+            }
+            return new HistoryPage(messages.Count, enqueued, messages.Min(m => m.id), false, history.Count);
         }
-        return new HistoryPage(messages.Count, enqueued, messages.Min(m => m.id), false, history.Count);
+        catch (RpcException rpc) when (IsInaccessibleChannel(rpc))
+        {
+            // The channel is permanently out of reach for us (private / invalid / banned / left): Messages_GetHistory
+            // will keep throwing 400. Signal it like an unresolved channel (Scanned 0, not Exhausted) so the backfill
+            // marks it done and drops it from the round-robin instead of retrying every 10 s forever. Transient errors
+            // (FLOOD_WAIT, network) are NOT caught here — they bubble up so the backfill can retry.
+            _log.LogDebug("ScanHistory: canal {Channel} inaccessible ({Error}) → ignoré", channelId, rpc.Message);
+            return new HistoryPage(0, 0, offsetId, false, 0);
+        }
     }
+
+    /// <summary>Telegram errors that mean a channel is permanently unreadable for this account (not a transient
+    /// hiccup): re-requesting its history will always throw, so the backfill should drop it rather than retry.</summary>
+    private static readonly string[] InaccessibleChannelErrors =
+        { "CHANNEL_PRIVATE", "CHANNEL_INVALID", "CHAT_FORBIDDEN", "PEER_ID_INVALID", "CHAT_ID_INVALID", "USER_BANNED_IN_CHANNEL" };
+
+    private static bool IsInaccessibleChannel(RpcException rpc)
+        => InaccessibleChannelErrors.Any(code => rpc.Message?.Contains(code, StringComparison.OrdinalIgnoreCase) == true);
 
     // ---------------------------------------------------------------- dialogs / watched set
 
