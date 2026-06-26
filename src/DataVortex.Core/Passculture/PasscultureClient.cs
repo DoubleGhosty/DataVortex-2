@@ -47,9 +47,16 @@ public sealed class PasscultureClient
         _log = log ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<PasscultureClient>.Instance;
     }
 
-    /// <summary>How long a proxy is benched after the backend rate-limits it (HTTP 429), so the next attempt
-    /// rotates to a different IP instead of hammering the throttled one.</summary>
+    /// <summary>How long a proxy is benched after the backend rate-limits it (HTTP 429).</summary>
     private static readonly TimeSpan RateLimitBan = TimeSpan.FromMinutes(5);
+
+    /// <summary>How long a proxy is benched after a transient transport failure (tunnel 502/503/504, reset,
+    /// timeout) — shorter than the rate-limit ban since these are usually fleeting.</summary>
+    private static readonly TimeSpan ProxyFailBan = TimeSpan.FromMinutes(2);
+
+    /// <summary>Extra send attempts on a transient proxy/rate-limit failure (so up to 3 sends total). Each retry
+    /// rotates to the next pooled proxy — with a rotating gateway that means a fresh exit IP.</summary>
+    private const int MaxTransportRetries = 2;
 
     /// <summary>Adds the Bearer token when present. The backend authenticates on this alone — the extra
     /// "web-app" headers we briefly sent (app-version/platform/device-id/…) turned out not to matter.</summary>
@@ -59,20 +66,57 @@ public sealed class PasscultureClient
             req.Headers.TryAddWithoutValidation("authorization", "Bearer " + bearer);
     }
 
-    /// <summary>Sends a request through the next pooled proxy and, on an HTTP 429 (rate limit), benches that proxy
-    /// for <see cref="RateLimitBan"/> so the caller's retry rotates to a fresh IP. Returns the response; the caller
-    /// owns disposal.</summary>
-    private async Task<HttpResponseMessage> SendThroughPoolAsync(HttpRequestMessage req, CancellationToken ct)
+    /// <summary>Sends a request through the next pooled proxy, retrying on a rate-limit (HTTP 429) or a transient
+    /// proxy/transport failure (502/503/504, or a tunnel/connection exception) by benching the failing proxy and
+    /// rotating to the next one — with a rotating gateway this re-exits through a different IP. The request is
+    /// rebuilt each attempt via <paramref name="reqFactory"/> (an HttpRequestMessage is single-use). A definitive
+    /// HTTP response (200/400/401/…) is returned immediately, never retried. On exhausted transport retries the
+    /// last exception is rethrown. The caller owns disposal of the returned response.</summary>
+    private async Task<HttpResponseMessage> SendThroughPoolAsync(Func<HttpRequestMessage> reqFactory, string path, CancellationToken ct)
     {
-        var http = _pool.Next();
-        var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
-        if ((int)resp.StatusCode == 429)
+        for (int attempt = 0; ; attempt++)
         {
-            _pool.Ban(http, RateLimitBan);
-            _log.LogWarning("Rate limit 429 sur {Path} → proxy mis en quarantaine {Min} min ({Avail} proxy(s) dispo)",
-                req.RequestUri, RateLimitBan.TotalMinutes, _pool.AvailableCount);
+            var http = _pool.Next();
+            try
+            {
+                using var req = reqFactory();
+                var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
+
+                int code = (int)resp.StatusCode;
+                if (code is 429 or 502 or 503 or 504)
+                {
+                    _pool.Ban(http, code == 429 ? RateLimitBan : ProxyFailBan);
+                    if (attempt < MaxTransportRetries)
+                    {
+                        _log.LogDebug("{Path}: HTTP {Code} → proxy en quarantaine, rotation (tentative {Next}, {Avail} dispo)",
+                            path, code, attempt + 2, _pool.AvailableCount);
+                        resp.Dispose();
+                        continue;
+                    }
+                    _log.LogWarning("{Path}: HTTP {Code} persistant après {Total} tentative(s) (rate limit / proxy)",
+                        path, code, attempt + 1);
+                }
+                return resp;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw; // genuine cancellation (Stop) — not a transport failure
+            }
+            catch (Exception ex)
+            {
+                // Transient transport/proxy failure (Bright Data tunnel 502, connection reset, timeout): no HTTP
+                // response. Bench this proxy and rotate; log the message only — the stack trace is always the same
+                // HttpConnectionPool plumbing and just floods the log.
+                _pool.Ban(http, ProxyFailBan);
+                if (attempt < MaxTransportRetries)
+                {
+                    _log.LogDebug("{Path}: échec proxy ({Error}) → rotation (tentative {Next}, {Avail} dispo)",
+                        path, ex.Message, attempt + 2, _pool.AvailableCount);
+                    continue;
+                }
+                throw;
+            }
         }
-        return resp;
     }
 
     /// <summary>
@@ -89,7 +133,6 @@ public sealed class PasscultureClient
         };
 
         var json = JsonSerializer.Serialize(req);
-        HttpContent? content = new StringContent(json, Encoding.UTF8, "application/json");
         try
         {
             // If no captcha token provided and TwoCaptchaService is available, try to solve automatically
@@ -104,18 +147,18 @@ public sealed class PasscultureClient
                     _log.LogInformation("2captcha returned token: {TokenPresent}", !string.IsNullOrWhiteSpace(solved));
                     if (!string.IsNullOrWhiteSpace(solved))
                     {
-                        // update body with solved token
-                        req["token"] = solved;
+                        req["token"] = solved; // update body with the solved token
                         json = JsonSerializer.Serialize(req);
-                        try { content.Dispose(); } catch { }
-                        content = new StringContent(json, Encoding.UTF8, "application/json");
                     }
                 }
                 catch { /* best-effort */ }
             }
             _log.LogInformation("→ Passculture POST signin pour {Email}", identifier);
-            using var sreq = new HttpRequestMessage(HttpMethod.Post, "native/v1/signin") { Content = content };
-            using var resp = await SendThroughPoolAsync(sreq, ct).ConfigureAwait(false);
+            // Rebuilt each attempt (the content stream is single-use); a 502 on one proxy retries on the next.
+            using var resp = await SendThroughPoolAsync(
+                () => new HttpRequestMessage(HttpMethod.Post, "native/v1/signin")
+                      { Content = new StringContent(json, Encoding.UTF8, "application/json") },
+                "signin", ct).ConfigureAwait(false);
             var s = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             // Debug aid: show the raw login response body (HTTP code + email) in the live log.
             _log.LogInformation("Signin response [{Email}] HTTP {Code}: {Response}", identifier, (int)resp.StatusCode, s);
@@ -140,8 +183,9 @@ public sealed class PasscultureClient
         }
         catch (Exception ex)
         {
-            // Network/proxy/timeout failure on the signin POST (NOT a backend rejection). Surface the reason.
-            _log.LogWarning(ex, "Signin exception pour {Email}: {Error}", identifier, ex.Message);
+            // Network/proxy/timeout failure on the signin POST (NOT a backend rejection). Surface the reason
+            // (message only — the stack trace is just HttpConnectionPool plumbing).
+            _log.LogWarning("Signin exception pour {Email}: {Error}", identifier, ex.Message);
             return new SignInResult { Success = false, Raw = ex.Message };
         }
     }
@@ -170,9 +214,9 @@ public sealed class PasscultureClient
     {
         try
         {
-            using var req = new HttpRequestMessage(HttpMethod.Post, "native/v1/refresh_access_token");
-            ApplyAuth(req, refreshToken);
-            using var resp = await SendThroughPoolAsync(req, ct).ConfigureAwait(false);
+            using var resp = await SendThroughPoolAsync(
+                () => { var r = new HttpRequestMessage(HttpMethod.Post, "native/v1/refresh_access_token"); ApplyAuth(r, refreshToken); return r; },
+                "refresh", ct).ConfigureAwait(false);
             var s = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             string? token = null, newRefresh = null;
             if (resp.IsSuccessStatusCode)
@@ -190,7 +234,7 @@ public sealed class PasscultureClient
                 !string.IsNullOrEmpty(newRefresh), Truncate(s, 160));
             return new RefreshResult { AccessToken = token, RefreshToken = newRefresh, StatusCode = (int)resp.StatusCode };
         }
-        catch (Exception ex) { _log.LogDebug(ex, "Refresh exception: {Error}", ex.Message); return new RefreshResult { StatusCode = 0 }; }
+        catch (Exception ex) { _log.LogDebug("Refresh exception: {Error}", ex.Message); return new RefreshResult { StatusCode = 0 }; }
     }
 
     /// <summary>Reactivates a user-suspended account: <c>POST native/v1/account/unsuspend</c> with the user's
@@ -201,16 +245,16 @@ public sealed class PasscultureClient
     {
         try
         {
-            using var req = new HttpRequestMessage(HttpMethod.Post, "native/v1/account/unsuspend");
-            ApplyAuth(req, accessToken);
-            using var resp = await SendThroughPoolAsync(req, ct).ConfigureAwait(false);
+            using var resp = await SendThroughPoolAsync(
+                () => { var r = new HttpRequestMessage(HttpMethod.Post, "native/v1/account/unsuspend"); ApplyAuth(r, accessToken); return r; },
+                "unsuspend", ct).ConfigureAwait(false);
             var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             _log.LogInformation("Unsuspend → HTTP {Code}: {Body}", (int)resp.StatusCode, body);
             return (int)resp.StatusCode;
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "Unsuspend exception: {Error}", ex.Message);
+            _log.LogWarning("Unsuspend exception: {Error}", ex.Message);
             return 0;
         }
     }
@@ -219,9 +263,9 @@ public sealed class PasscultureClient
     {
         try
         {
-            using var req = new HttpRequestMessage(HttpMethod.Get, "native/v1/me");
-            ApplyAuth(req, accessToken);
-            using var resp = await SendThroughPoolAsync(req, ct).ConfigureAwait(false);
+            using var resp = await SendThroughPoolAsync(
+                () => { var r = new HttpRequestMessage(HttpMethod.Get, "native/v1/me"); ApplyAuth(r, accessToken); return r; },
+                "me", ct).ConfigureAwait(false);
             var s = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             var me = ParseMe(s, (int)resp.StatusCode, resp.IsSuccessStatusCode);
             if (!me.Success)
@@ -233,7 +277,7 @@ public sealed class PasscultureClient
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "GetMe exception: {Error}", ex.Message);
+            _log.LogWarning("GetMe exception: {Error}", ex.Message);
             return new MeResult { Success = false };
         }
     }
