@@ -155,16 +155,23 @@ public sealed class BackfillService : IBackfillService, IDisposable
                     Interlocked.Add(ref _totalScanned, page.Scanned);
                     Interlocked.Add(ref _totalEnqueued, page.Enqueued);
 
+                    // A page with zero messages means there is nothing (more) to dig here: either the end of the
+                    // channel's history (Exhausted), or a channel we can't read — e.g. one we are not subscribed to,
+                    // which never resolves (NextOffsetId stays put) and would otherwise be re-scanned ~3×/s forever.
+                    // Either way mark it done so the round-robin drops it instead of hammering it.
+                    bool unreachable = page.Scanned == 0 && !page.Exhausted;
+                    bool done = page.Exhausted || page.Scanned == 0;
                     lock (_gate)
                     {
                         if (!_progress.TryGetValue(channelId, out var p)) _progress[channelId] = p = new ChannelProgress();
                         p.OffsetId = page.NextOffsetId;
-                        if (page.Exhausted) p.Completed = true;
+                        if (done) p.Completed = true;
                     }
                     Save();
 
                     _log.LogInformation("Backfill {Channel}: scanned {Scanned}, enqueued {Enqueued} new archive(s){Done}",
-                        title, page.Scanned, page.Enqueued, page.Exhausted ? " — channel complete" : "");
+                        title, page.Scanned, page.Enqueued,
+                        unreachable ? " — inaccessible (non abonné ?), ignoré" : page.Exhausted ? " — channel complete" : "");
                     Publish(BackfillState.Scanning, title);
 
                     // Enqueued new work → step back to the idle wait so it can drain. Nothing new → keep digging.
