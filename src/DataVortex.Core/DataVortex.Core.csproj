@@ -19,4 +19,9 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.10" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Portable licensing primitives shared with the licence server (token, fingerprint, signing). -->
+    <ProjectReference Include="..\DataVortex.Licensing\DataVortex.Licensing.csproj" />
+  </ItemGroup>
+
 </Project>

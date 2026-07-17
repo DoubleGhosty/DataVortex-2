@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DataVortex — Administration des licences</title>
+<style>
+  :root{
+    --bg:#0d141d; --surface:#131f2b; --surface2:#182634; --line:#233243; --ink:#dce5ef; --muted:#8ea0b4;
+    --accent:#4f8af0; --ok:#37c08a; --warn:#e0a93b; --crit:#f0625e; --mono:"Cascadia Code",Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"Segoe UI",system-ui,sans-serif;font-size:15px}
+  header{border-bottom:1px solid var(--line);background:linear-gradient(180deg,#16273d,var(--surface));padding:18px 24px;
+    display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+  h1{font-size:1.15rem;margin:0;letter-spacing:-.01em}
+  h1 span{color:var(--accent)}
+  .keybar{display:flex;gap:8px;align-items:center}
+  input,select,button{font:inherit;color:var(--ink);background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:8px 11px}
+  input::placeholder{color:var(--muted)}
+  button{background:var(--accent);border-color:transparent;color:#fff;cursor:pointer;font-weight:600}
+  button.ghost{background:transparent;color:var(--ink)}
+  button.sm{padding:4px 9px;font-size:.82rem}
+  button:hover{filter:brightness(1.08)}
+  main{max-width:1180px;margin:0 auto;padding:24px}
+  section{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin-bottom:20px}
+  section h2{font-size:.78rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0 0 14px;font-weight:600}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px}
+  .card{background:var(--surface2);border:1px solid var(--line);border-radius:8px;padding:14px}
+  .card .n{font-size:1.7rem;font-weight:700;font-variant-numeric:tabular-nums}
+  .card .l{font-size:.78rem;color:var(--muted);margin-top:2px}
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:end}
+  .row .f{display:flex;flex-direction:column;gap:4px}
+  .row .f label{font-size:.72rem;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+  table{width:100%;border-collapse:collapse;font-size:.9rem}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+  th{font-size:.72rem;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);font-weight:600}
+  td.mono,.mono{font-family:var(--mono);font-size:.82rem}
+  .pill{display:inline-block;font-family:var(--mono);font-size:.72rem;font-weight:600;padding:2px 8px;border-radius:5px;border:1px solid var(--line)}
+  .pill.Active{color:var(--ok);border-color:#1c5a41;background:#122720}
+  .pill.Revoked{color:var(--crit);border-color:#5a2321;background:#2c1615}
+  .pill.Suspended{color:var(--warn);border-color:#5a481c;background:#292112}
+  .pill.Expired{color:var(--muted)}
+  .actions{display:flex;gap:6px;flex-wrap:wrap}
+  .scroll{overflow-x:auto}
+  #gate{max-width:420px;margin:14vh auto;text-align:center}
+  #gate p{color:var(--muted)}
+  .hidden{display:none}
+  .toast{position:fixed;right:20px;bottom:20px;background:var(--surface2);border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:8px;padding:12px 16px;max-width:380px;box-shadow:0 8px 26px rgba(0,0,0,.4)}
+  .toast.err{border-left-color:var(--crit)} .toast.ok{border-left-color:var(--ok)}
+  code.key{font-family:var(--mono);font-size:1.05rem;color:var(--ok);background:#0c1c15;border:1px solid #1c5a41;border-radius:6px;padding:6px 10px;display:inline-block}
+  .muted{color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Data<span>Vortex</span> · Administration des licences</h1>
+  <div class="keybar">
+    <button class="ghost hidden" id="logout">Déconnexion</button>
+  </div>
+</header>
+
+<div id="gate">
+  <h2 style="letter-spacing:normal;text-transform:none;color:var(--ink)">Connexion administrateur</h2>
+  <p>Double authentification : mot de passe + code TOTP (application d'authentification).</p>
+  <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px;text-align:left">
+    <input id="lEmail" type="email" placeholder="E-mail" autocomplete="username">
+    <input id="lPass" type="password" placeholder="Mot de passe" autocomplete="current-password">
+    <input id="lTotp" type="text" placeholder="Code TOTP (6 chiffres)" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+    <button id="login">Se connecter</button>
+  </div>
+</div>
+
+<main id="app" class="hidden">
+  <section>
+    <h2>Statistiques</h2>
+    <div class="cards" id="stats"></div>
+  </section>
+
+  <section>
+    <h2>Générer une licence</h2>
+    <div class="row">
+      <div class="f"><label>E-mail</label><input id="gEmail" placeholder="client@exemple.fr" size="22"></div>
+      <div class="f"><label>Type</label><select id="gType"><option>Trial</option><option>Standard</option><option selected>Pro</option><option>Enterprise</option><option>Lifetime</option></select></div>
+      <div class="f"><label>Activations</label><input id="gMax" type="number" value="3" min="1" style="width:90px"></div>
+      <div class="f"><label>Validité (jours)</label><input id="gDays" type="number" value="365" min="0" style="width:110px"></div>
+      <div class="f"><label>Fonctions (CSV)</label><input id="gFeat" placeholder="checker,backfill,export" size="22"></div>
+      <button id="gBtn">Générer</button>
+    </div>
+    <div id="gOut" style="margin-top:14px"></div>
+  </section>
+
+  <section>
+    <h2>Licences</h2>
+    <div class="row" style="margin-bottom:14px">
+      <div class="f"><label>Recherche (e-mail ou id)</label><input id="q" placeholder="client@exemple.fr" size="28"></div>
+      <button id="search">Rechercher</button>
+      <button class="ghost" id="refresh">Tout afficher</button>
+      <button class="ghost" id="export">Exporter CSV</button>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>E-mail</th><th>Type</th><th>Statut</th><th>Activations</th><th>Expire</th><th>Actions</th></tr></thead>
+        <tbody id="licenses"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Anomalies (partage suspecté)</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Licence</th><th>Appareils actifs</th><th>Autorisés</th><th>Rejets matériel</th></tr></thead>
+        <tbody id="anomalies"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+let KEY = sessionStorage.getItem("dvxAdminToken") || "";
+
+function toast(msg, kind){ const t=document.createElement("div"); t.className="toast "+(kind||""); t.textContent=msg;
+  document.body.appendChild(t); setTimeout(()=>t.remove(), 4000); }
+
+async function api(path, opts={}){
+  const res = await fetch(path, { ...opts, headers: { "Authorization": "Bearer "+KEY, "Content-Type":"application/json", ...(opts.headers||{}) }});
+  if(res.status === 401){ toast("Session expirée — reconnectez-vous.", "err"); logout(); throw new Error("unauthorized"); }
+  if(!res.ok && res.status !== 404) throw new Error("HTTP "+res.status);
+  const txt = await res.text();
+  return txt ? JSON.parse(txt) : null;
+}
+
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const date = d => d ? new Date(d).toLocaleDateString("fr-FR") : "—";
+
+async function loadStats(){
+  const s = await api("/api/v1/admin/stats");
+  const cards = [["Total", s.total],["Actives", s.active],["Suspendues", s.suspended],["Révoquées", s.revoked],["Activations", s.activeActivations]];
+  $("#stats").innerHTML = cards.map(([l,n])=>`<div class="card"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
+}
+
+async function loadLicenses(query){
+  const rows = await api("/api/v1/admin/licenses" + (query ? "?query="+encodeURIComponent(query) : ""));
+  $("#licenses").innerHTML = (rows||[]).map(l=>`<tr>
+    <td>${esc(l.email)||'<span class="muted">—</span>'}</td>
+    <td class="mono">${esc(l.type)}</td>
+    <td><span class="pill ${esc(l.status)}">${esc(l.status)}</span></td>
+    <td class="mono">${l.activeActivations}/${l.maxActivations}</td>
+    <td class="mono">${date(l.expiresAt)}</td>
+    <td class="actions">
+      <button class="sm" data-act="revoke" data-id="${l.id}">Révoquer</button>
+      <button class="sm ghost" data-act="suspend" data-id="${l.id}">Suspendre</button>
+      <button class="sm ghost" data-act="reactivate" data-id="${l.id}">Réactiver</button>
+      <button class="sm ghost" data-act="reset" data-id="${l.id}">Reset</button>
+    </td></tr>`).join("") || `<tr><td colspan="6" class="muted">Aucune licence.</td></tr>`;
+}
+
+async function loadAnomalies(){
+  const r = await api("/api/v1/admin/anomalies");
+  const a = (r && r.anomalies) || [];
+  $("#anomalies").innerHTML = a.map(x=>`<tr>
+    <td class="mono">${esc(x.licenseId)}</td><td class="mono">${x.activeDevices}</td>
+    <td class="mono">${x.maxActivations}</td><td class="mono">${x.hardwareMismatches}</td></tr>`).join("")
+    || `<tr><td colspan="4" class="muted">Rien à signaler.</td></tr>`;
+}
+
+async function refreshAll(){ try{ await Promise.all([loadStats(), loadLicenses(), loadAnomalies()]); }catch(e){} }
+
+function showApp(){
+  $("#gate").classList.add("hidden"); $("#app").classList.remove("hidden");
+  $("#logout").classList.remove("hidden"); refreshAll();
+}
+function logout(){ KEY=""; sessionStorage.removeItem("dvxAdminToken"); location.reload(); }
+async function login(){
+  const body = { email:$("#lEmail").value.trim(), password:$("#lPass").value, totp:$("#lTotp").value.trim() };
+  if(!body.email || !body.password || !body.totp){ toast("E-mail, mot de passe et code requis.", "err"); return; }
+  try{
+    const res = await fetch("/api/v1/admin/login", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) });
+    if(!res.ok){ toast("Identifiants ou code TOTP invalides.", "err"); return; }
+    const j = await res.json(); KEY = j.token; sessionStorage.setItem("dvxAdminToken", KEY); showApp();
+  }catch(e){ toast("Serveur injoignable.", "err"); }
+}
+
+$("#login").onclick = login;
+$("#logout").onclick = logout;
+$("#lTotp").addEventListener("keydown", e=>{ if(e.key==="Enter") login(); });
+$("#search").onclick = ()=> loadLicenses($("#q").value.trim());
+$("#q").addEventListener("keydown", e=>{ if(e.key==="Enter") loadLicenses($("#q").value.trim()); });
+$("#refresh").onclick = ()=> loadLicenses("");
+$("#export").onclick = async ()=>{
+  try{ const res = await fetch("/api/v1/admin/export", { headers:{ "Authorization": "Bearer "+KEY }});
+    if(!res.ok) throw 0; const blob = await res.blob(); const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = "licences.csv"; a.click(); URL.revokeObjectURL(a.href); }
+  catch(e){ toast("Échec de l'export.", "err"); }
+};
+
+$("#gBtn").onclick = async ()=>{
+  const body = {
+    email: $("#gEmail").value.trim(),
+    type: $("#gType").value,
+    maxActivations: parseInt($("#gMax").value)||1,
+    validityDays: parseInt($("#gDays").value)||0,
+    features: $("#gFeat").value.split(",").map(s=>s.trim()).filter(Boolean),
+  };
+  if(!body.email){ toast("E-mail requis.", "err"); return; }
+  try{
+    const r = await api("/api/v1/admin/licenses", { method:"POST", body: JSON.stringify(body) });
+    $("#gOut").innerHTML = `Clé générée (copiez-la, elle ne sera plus affichée) : <code class="key">${esc(r.license_key)}</code>`;
+    toast("Licence générée.", "ok"); await Promise.all([loadStats(), loadLicenses("")]);
+  }catch(e){ toast("Échec de la génération.", "err"); }
+};
+
+$("#licenses").addEventListener("click", async e=>{
+  const b = e.target.closest("button[data-act]"); if(!b) return;
+  const verb = b.dataset.act, id = b.dataset.id;
+  if(verb==="revoke" && !confirm("Révoquer définitivement cette licence ?")) return;
+  try{ await api(`/api/v1/admin/licenses/${id}/${verb}`, { method:"POST" });
+       toast("Action « "+verb+" » effectuée.", "ok"); await refreshAll(); }
+  catch(e){ toast("Échec de l'action.", "err"); }
+});
+
+if(KEY) showApp();
+</script>
+</body>
+</html>

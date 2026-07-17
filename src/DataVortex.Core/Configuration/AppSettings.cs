@@ -97,4 +97,12 @@ public sealed class AppSettings
     /// <summary>Safety-net cleanup: files left in downloads/ and extracted/ older than this many minutes are
     /// deleted periodically (active/locked files are skipped). 0 disables it.</summary>
     public int CleanupResidueMinutes { get; set; } = 60;
+
+    // ---- Licensing ----
+    /// <summary>When true, the app requires a valid licence at startup (activation screen + periodic checks).
+    /// Default <c>false</c> so the app runs unlicensed until the licence server is deployed.</summary>
+    public bool LicensingEnabled { get; set; } = false;
+
+    /// <summary>Base URL of the licence server; empty uses the built-in default.</summary>
+    public string LicenseServerUrl { get; set; } = "";
 }

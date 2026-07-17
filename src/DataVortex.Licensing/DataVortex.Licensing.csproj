@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Portable (net8.0, NOT -windows) so BOTH the WPF client (net8.0-windows) and the ASP.NET Core licence
+       server (net8.0) can reference it. Holds only the crypto + wire primitives shared by client and server:
+       token claims, signing/verification, and the transmissible fingerprint. No platform dependencies. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>DataVortex.Licensing</RootNamespace>
+    <AssemblyName>DataVortex.Licensing</AssemblyName>
+  </PropertyGroup>
+
+</Project>

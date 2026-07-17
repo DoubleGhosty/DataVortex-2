@@ -45,4 +45,7 @@ public sealed class AppPaths
     public string UpdateStateFile => Path.Combine(Session, "updates.state");
     public string CredentialsFile => Path.Combine(Session, "credentials.dat");
     public string SettingsFile => Path.Combine(Root, "settings.json");
+
+    /// <summary>DPAPI-encrypted local licence state (signed lease + bound fingerprint + last-seen clock).</summary>
+    public string LicenseFile => Path.Combine(Session, "license.dat");
 }

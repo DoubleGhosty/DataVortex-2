@@ -1,0 +1,68 @@
+<Window x:Class="DataVortex.App.Views.LicenseActivationDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Activation de la licence"
+        Height="460" Width="480" MinHeight="380" MinWidth="420"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanResize" ShowInTaskbar="True"
+        FontFamily="Segoe UI"
+        Background="{DynamicResource Bg}"
+        TextElement.Foreground="{DynamicResource TextPrimary}">
+
+    <Grid>
+        <Border Style="{StaticResource Card}" Margin="24">
+            <DockPanel>
+                <!-- Header -->
+                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,18">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="&#xE192;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="24"
+                                   Foreground="{DynamicResource Accent}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                        <TextBlock Text="Activer DataVortex" Style="{StaticResource Title}"/>
+                    </StackPanel>
+                    <TextBlock Style="{StaticResource Caption}" TextWrapping="Wrap"
+                               Text="Saisissez votre clé de licence pour activer ce poste. La licence est liée à cet ordinateur et vérifiée périodiquement."/>
+                </StackPanel>
+
+                <!-- Footer -->
+                <DockPanel DockPanel.Dock="Bottom" Margin="0,16,0,0">
+                    <Button Content="Quitter" Style="{StaticResource Ghost}" Command="{Binding QuitCommand}"
+                            DockPanel.Dock="Left"/>
+                    <Border Background="{DynamicResource BgElevated}" CornerRadius="8" Padding="12,8" Margin="12,0,0,0"
+                            Visibility="{Binding Error, Converter={StaticResource StringToVis}}">
+                        <TextBlock Text="{Binding Error}" Foreground="{DynamicResource Error}" TextWrapping="Wrap" FontSize="12"/>
+                    </Border>
+                </DockPanel>
+
+                <!-- Body -->
+                <StackPanel VerticalAlignment="Top">
+                    <TextBlock Text="Clé de licence" Style="{StaticResource MetricLabel}" Margin="0,0,0,6"/>
+                    <TextBox Text="{Binding LicenseKey, UpdateSourceTrigger=PropertyChanged}"
+                             FontSize="16" FontFamily="JetBrains Mono, Cascadia Mono, Consolas"
+                             HorizontalContentAlignment="Center"
+                             CharacterCasing="Upper"/>
+
+                    <TextBlock Text="{Binding StatusText}" Style="{StaticResource Caption}" Margin="0,12,0,0"
+                               Visibility="{Binding StatusText, Converter={StaticResource StringToVis}}"/>
+
+                    <ProgressBar IsIndeterminate="True" Margin="0,12,0,0"
+                                 Foreground="{DynamicResource Accent}">
+                        <ProgressBar.Style>
+                            <Style TargetType="ProgressBar" BasedOn="{StaticResource Thin}">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsBusy}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ProgressBar.Style>
+                    </ProgressBar>
+
+                    <!-- The async command disables the button while running (CanExecute), no extra style needed. -->
+                    <Button Content="Activer" Command="{Binding ActivateCommand}"
+                            HorizontalAlignment="Right" Margin="0,20,0,0" MinWidth="140"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>

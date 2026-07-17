@@ -10,6 +10,7 @@ using DataVortex.Core.Accounts;
 using DataVortex.Core.Backfill;
 using DataVortex.Core.Configuration;
 using DataVortex.Core.Extraction;
+using DataVortex.Core.Licensing;
 using DataVortex.Core.Metrics;
 using DataVortex.Core.Models;
 using DataVortex.Core.Pipeline;
@@ -54,12 +55,31 @@ public partial class App : Application
         _provider.GetRequiredService<DataVortex.Core.Storage.CleanupService>().Start();
         _provider.GetRequiredService<DataVortex.Core.Notifications.AccountNotifier>().Start();
 
+        // Licence gate (no-op unless enabled in settings). Runs before the shell so an unlicensed copy can't run.
+        if (_provider.GetRequiredService<ISettingsService>().Current.LicensingEnabled && !EnsureLicensed())
+        {
+            Shutdown();
+            return;
+        }
+
         var shell = _provider.GetRequiredService<ShellWindow>();
         MainWindow = shell;
         shell.Show();
 
         // Kick off connection / login without blocking the UI thread.
         _ = _provider.GetRequiredService<ShellViewModel>().InitializeAsync();
+    }
+
+    /// <summary>Blocks startup until the licence is usable: evaluates the stored licence and, if it isn't
+    /// Active/Degraded, shows the activation dialog. Returns false if the user quit without activating.</summary>
+    private bool EnsureLicensed()
+    {
+        var manager = _provider!.GetRequiredService<ILicenseManager>();
+        var status = manager.EvaluateAsync().GetAwaiter().GetResult();
+        if (status.IsUsable) return true;
+
+        var dialog = _provider!.GetRequiredService<LicenseActivationDialog>();
+        return dialog.ShowDialog() == true;
     }
 
     private static void ConfigureLogging(AppPaths paths)
@@ -137,6 +157,24 @@ public partial class App : Application
 
 
 
+        // ---- Licensing (client) — gated by AppSettings.LicensingEnabled (off by default) ----
+        services.AddSingleton<ILicenseStore>(sp => new DpapiLicenseStore(sp.GetRequiredService<AppPaths>().LicenseFile));
+        services.AddSingleton<ILicenseApiClient>(sp =>
+        {
+            var cfg = sp.GetRequiredService<ISettingsService>().Current;
+            var url = string.IsNullOrWhiteSpace(cfg.LicenseServerUrl) ? LicensingConstants.DefaultServerUrl : cfg.LicenseServerUrl;
+            return new HttpLicenseApiClient(
+                PinnedHttpClientFactory.Create(LicensingConstants.ServerCertSpkiPin), url, LicensingConstants.AppHmacKey);
+        });
+        services.AddSingleton<ILicenseManager>(sp => new LicenseManager(
+            sp.GetRequiredService<ILicenseStore>(),
+            sp.GetRequiredService<ILicenseApiClient>(),
+            new LicenseOptions
+            {
+                PublicKeys = LicensingConstants.PublicKeys,
+                AppVersion = typeof(App).Assembly.GetName().Version?.ToString() ?? "",
+            }));
+
         // ---- ViewModels ----
         services.AddSingleton<LogViewModel>();
         services.AddSingleton<DashboardViewModel>();
@@ -148,9 +186,11 @@ public partial class App : Application
         services.AddSingleton<SettingsViewModel>();
         services.AddSingleton<ShellViewModel>();
         services.AddTransient<LoginViewModel>();
+        services.AddTransient<LicenseActivationViewModel>();
 
         // ---- Windows ----
         services.AddTransient<LoginDialog>();
+        services.AddTransient<LicenseActivationDialog>();
         services.AddSingleton<ShellWindow>();
 
         return services.BuildServiceProvider();
