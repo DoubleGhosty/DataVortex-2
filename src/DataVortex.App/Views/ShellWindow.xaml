@@ -52,17 +52,14 @@
 
                 <!-- Bottom toolbar -->
                 <Border DockPanel.Dock="Bottom" Padding="14,0,14,4">
-                    <UniformGrid Columns="5">
+                    <UniformGrid Columns="3">
                         <Button Content="{Binding PauseLabel}" Style="{StaticResource Ghost}" Command="{Binding TogglePauseCommand}"
-                                FontSize="11" Padding="4,6"/>
-                        <Button Content="&#xE771;" Style="{StaticResource IconButton}" Command="{Binding ToggleThemeCommand}"
-                                ToolTip="Toggle theme"/>
+                                FontSize="11" Padding="4,6"
+                                ToolTip="Pause or resume the whole pipeline (downloads + extraction)."/>
                         <Button Content="&#xED25;" Style="{StaticResource IconButton}" Command="{Binding OpenDataFolderCommand}"
-                                ToolTip="Data folder"/>
-                        <Button Content="&#xE74D;" Style="{StaticResource IconButton}" Command="{Binding ClearDedupCommand}"
-                                ToolTip="Clear dedup"/>
+                                ToolTip="Open data folder"/>
                         <Button Content="&#xE77B;" Style="{StaticResource IconButton}" Command="{Binding LoginCommand}"
-                                IsEnabled="{Binding CanOpenLogin}" ToolTip="Login"/>
+                                IsEnabled="{Binding CanOpenLogin}" ToolTip="Sign in to Telegram"/>
                     </UniformGrid>
                 </Border>
 

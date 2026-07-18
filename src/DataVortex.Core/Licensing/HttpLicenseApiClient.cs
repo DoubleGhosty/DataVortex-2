@@ -43,6 +43,57 @@ public sealed class HttpLicenseApiClient : ILicenseApiClient
     public async Task DeactivateAsync(string token, CancellationToken ct = default)
         => await PostAsync("deactivate", new Dictionary<string, object?> { ["token"] = token }, ct).ConfigureAwait(false);
 
+    public Task<SessionResponse> StartSessionAsync(string token, FingerprintSnapshot fingerprint, CancellationToken ct = default)
+        => PostSessionAsync("session/start", new Dictionary<string, object?>
+        {
+            ["token"] = token,
+            ["fingerprint"] = FingerprintJson(fingerprint),
+        }, ct);
+
+    public Task<SessionResponse> RefreshSessionAsync(string sessionToken, FingerprintSnapshot fingerprint, CancellationToken ct = default)
+        => PostSessionAsync("session/refresh", new Dictionary<string, object?>
+        {
+            ["session_token"] = sessionToken,
+            ["fingerprint"] = FingerprintJson(fingerprint),
+        }, ct);
+
+    private async Task<SessionResponse> PostSessionAsync(string endpoint, Dictionary<string, object?> body, CancellationToken ct)
+    {
+        var json = JsonSerializer.Serialize(body);
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{_base}/api/v1/{endpoint}")
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json"),
+        };
+        SignRequest(req, json);
+        using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        var text = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        return ParseSessionResponse(resp.StatusCode, text);
+    }
+
+    private static SessionResponse ParseSessionResponse(System.Net.HttpStatusCode code, string body)
+    {
+        if ((int)code == 429) return new(false, null, null, LicenseServerStatus.RateLimited, null);
+
+        string? sessionToken = null, message = null, statusStr = null;
+        DateTimeOffset? expiresAt = null;
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            var r = doc.RootElement;
+            if (r.ValueKind == JsonValueKind.Object)
+            {
+                if (r.TryGetProperty("session_token", out var t) && t.ValueKind == JsonValueKind.String) sessionToken = t.GetString();
+                if (r.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String) message = m.GetString();
+                if (r.TryGetProperty("status", out var s) && s.ValueKind == JsonValueKind.String) statusStr = s.GetString();
+                if (r.TryGetProperty("expires_at", out var e) && e.TryGetDateTimeOffset(out var exp)) expiresAt = exp;
+            }
+        }
+        catch { /* non-JSON → fall back to HTTP code */ }
+
+        var status = MapStatus(statusStr, code, sessionToken);
+        return new(status == LicenseServerStatus.Ok, sessionToken, expiresAt, status, message);
+    }
+
     private async Task<LicenseResponse> PostAsync(string endpoint, Dictionary<string, object?> body, CancellationToken ct)
     {
         var json = JsonSerializer.Serialize(body);

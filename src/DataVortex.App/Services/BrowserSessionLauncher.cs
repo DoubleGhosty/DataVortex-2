@@ -74,7 +74,7 @@ public static class BrowserSessionLauncher
             }
             await Task.Delay(100, ct).ConfigureAwait(false);
         }
-        throw new TimeoutException("Chrome DevTools n'a pas démarré à temps.");
+        throw new TimeoutException("Chrome DevTools did not start in time.");
     }
 
     private static async Task<string> GetPageWebSocketAsync(int port, CancellationToken ct)
@@ -96,7 +96,7 @@ public static class BrowserSessionLauncher
             catch { /* not ready yet */ }
             await Task.Delay(100, ct).ConfigureAwait(false);
         }
-        throw new TimeoutException("Aucun onglet Chrome contrôlable trouvé.");
+        throw new TimeoutException("No controllable Chrome tab found.");
     }
 
     private static async Task SendAsync(ClientWebSocket ws, int id, string method, object? prms, CancellationToken ct)

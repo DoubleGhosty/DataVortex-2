@@ -1,7 +1,9 @@
 using DataVortex.Core.Abstractions;
 using DataVortex.Core.Accounts;
 using DataVortex.Core.Configuration;
+using DataVortex.Core.Licensing;
 using DataVortex.Core.Models;
+using DataVortex.Licensing;
 using Microsoft.Extensions.Logging;
 
 namespace DataVortex.Core.Pipeline;
@@ -25,6 +27,7 @@ public sealed class PipelineCoordinator : IPipelineCoordinator, IDisposable
     private readonly DataVortex.Core.Passculture.PasscultureClient? _passClient;
     private readonly IAccountTestRegistry _accounts;
     private readonly IPendingDownloadStore _pending;
+    private readonly ILicenseGate _gate;
     private CancellationTokenSource? _cts;
 
     public bool IsRunning { get; private set; }
@@ -42,7 +45,7 @@ public sealed class PipelineCoordinator : IPipelineCoordinator, IDisposable
         ITelegramService telegram, IStorageService storage, IMetricsService metrics,
         IArchiveExtractor extractor, ISettingsService settings, ILoggerFactory loggerFactory,
         IDownloadDeduplicator dedup, IAccountTestRegistry accounts, IPendingDownloadStore pending,
-        DataVortex.Core.Passculture.PasscultureClient? passClient)
+        ILicenseGate gate, DataVortex.Core.Passculture.PasscultureClient? passClient)
     {
         _telegram = telegram;
         _storage = storage;
@@ -51,6 +54,7 @@ public sealed class PipelineCoordinator : IPipelineCoordinator, IDisposable
         _dedup = dedup;
         _accounts = accounts;
         _pending = pending;
+        _gate = gate;
         _log = loggerFactory.CreateLogger<PipelineCoordinator>();
         _passClient = passClient;
 
@@ -92,6 +96,16 @@ public sealed class PipelineCoordinator : IPipelineCoordinator, IDisposable
     public void Start()
     {
         if (IsRunning) return;
+
+        // Licence gate at the real execution site (not a shared boolean): no entitlement ⇒ the pipeline never
+        // spins up. In a Release build the gate is only ever fed by the licence guard, so a bypassed startup check
+        // lands here with Entitlements.None and the pipeline simply refuses.
+        if (!_gate.Allows(Capability.RunPipeline))
+        {
+            _log.LogWarning("Pipeline not started — this build is not licensed to run it.");
+            return;
+        }
+
         _cts = new CancellationTokenSource();
         _bandwidth.BytesPerSecond = _settings.Current.BandwidthLimitBytesPerSecond;
         _metrics.Start();
@@ -207,6 +221,10 @@ public sealed class PipelineCoordinator : IPipelineCoordinator, IDisposable
 
     private async void OnFileDetected(DownloadJob job)
     {
+        // Dispersed second gate on the hot path — a licence lapse mid-run quietly stops accepting new work. The
+        // non-uniform effect (silent drop here vs. a logged refusal in Start) means there is no single pattern to
+        // pattern-match and patch out.
+        if (!_gate.Allows(Capability.RunPipeline)) return;
         try
         {
             _pending.Add(job); // remember it so the download queue survives a restart

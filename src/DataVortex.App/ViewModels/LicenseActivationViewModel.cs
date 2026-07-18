@@ -25,21 +25,21 @@ public sealed partial class LicenseActivationViewModel : ObservableObject
     {
         Error = "";
         var key = (LicenseKey ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(key)) { Error = "Saisissez votre clé de licence."; return; }
+        if (string.IsNullOrWhiteSpace(key)) { Error = "Enter your license key."; return; }
 
         IsBusy = true;
-        StatusText = "Activation en cours…";
+        StatusText = "Activating…";
         try
         {
             var status = await _manager.ActivateAsync(key).ConfigureAwait(true);
-            if (status.IsUsable)
+            if (status.State is LicenseState.Active or LicenseState.Degraded)
             {
-                StatusText = "Licence activée.";
+                StatusText = "License activated.";
                 CloseRequested?.Invoke(true);
             }
             else
             {
-                Error = status.Message ?? "Activation impossible.";
+                Error = status.Message ?? "Activation failed.";
                 StatusText = "";
             }
         }

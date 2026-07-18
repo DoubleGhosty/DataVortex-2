@@ -46,6 +46,45 @@ public sealed class StatusToBrushConverter : IValueConverter
     public object ConvertBack(object value, Type t, object? p, CultureInfo c) => Binding.DoNothing;
 }
 
+/// <summary>Maps an account category token (VALIDE/BAN/CUSTOM/EXPIRE/RECUP/INACTIVE/RETRY) to a themed brush.
+/// The tokens are the data-layer codes; only their colour is derived here.</summary>
+public sealed class CategoryToBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        var key = value?.ToString() switch
+        {
+            "VALIDE" => "Success",
+            "BAN" => "Error",
+            "CUSTOM" => "Warning",
+            "RECUP" => "Accent",
+            "EXPIRE" or "INACTIVE" or "RETRY" => "Muted",
+            _ => "TextSecondary"
+        };
+        return Application.Current.TryFindResource(key) as Brush
+               ?? Application.Current.TryFindResource("TextSecondary") as Brush
+               ?? Brushes.Gray;
+    }
+
+    public object ConvertBack(object value, Type t, object? p, CultureInfo c) => Binding.DoNothing;
+}
+
+/// <summary>Displays an account category token in English (the stored codes stay VALIDE/EXPIRE, only the
+/// on-screen label is anglicised).</summary>
+public sealed class CategoryToLabelConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object? parameter, CultureInfo culture)
+        => value?.ToString() switch
+        {
+            "VALIDE" => "VALID",
+            "EXPIRE" => "EXPIRED",
+            null or "" => "—",
+            var s => s
+        };
+
+    public object ConvertBack(object value, Type t, object? p, CultureInfo c) => Binding.DoNothing;
+}
+
 /// <summary>true =&gt; Collapsed, false =&gt; Visible.</summary>
 public sealed class InverseBoolToVisibilityConverter : IValueConverter
 {

@@ -99,10 +99,8 @@ public sealed class AppSettings
     public int CleanupResidueMinutes { get; set; } = 60;
 
     // ---- Licensing ----
-    /// <summary>When true, the app requires a valid licence at startup (activation screen + periodic checks).
-    /// Default <c>false</c> so the app runs unlicensed until the licence server is deployed.</summary>
-    public bool LicensingEnabled { get; set; } = false;
-
-    /// <summary>Base URL of the licence server; empty uses the built-in default.</summary>
-    public string LicenseServerUrl { get; set; } = "";
+    // Nothing here on purpose. Whether the build enforces licensing is a COMPILED-IN constant
+    // (LicensingConstants.LicensingEnforced), not a user-editable setting — see that file. The server URL and
+    // verification keys are embedded constants too, so settings.json can neither disable licensing nor redirect
+    // the client at a rogue server.
 }

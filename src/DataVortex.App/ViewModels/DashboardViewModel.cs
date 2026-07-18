@@ -41,7 +41,7 @@ public sealed partial class DashboardViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(BackfillToggleLabel))]
     private bool backfillEnabled;
 
-    public string BackfillToggleLabel => BackfillEnabled ? "Pause backfill" : "Enable backfill";
+    public string BackfillToggleLabel => BackfillEnabled ? "Disable backfill" : "Enable backfill";
 
     public DashboardViewModel(
         IMetricsService metrics, ITelegramService telegram, ISettingsService settings,

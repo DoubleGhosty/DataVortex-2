@@ -10,6 +10,7 @@ builder.Services.AddDbContext<LicenseDbContext>(o =>
     o.UseNpgsql(builder.Configuration.GetConnectionString("Licenses")));
 builder.Services.AddSingleton<SigningService>();
 builder.Services.AddScoped<LicenseService>();
+builder.Services.AddScoped<SessionService>();
 builder.Services.AddScoped<AnomalyService>();
 builder.Services.AddScoped<AdminService>();
 builder.Services.AddMemoryCache();
@@ -50,7 +51,8 @@ var hmacKey = Encoding.UTF8.GetBytes(builder.Configuration["Security:AppHmacKey"
 app.Use(async (ctx, next) =>
 {
     var path = ctx.Request.Path.Value ?? "";
-    var guarded = path is "/api/v1/activate" or "/api/v1/verify" or "/api/v1/renew" or "/api/v1/deactivate";
+    var guarded = path is "/api/v1/activate" or "/api/v1/verify" or "/api/v1/renew" or "/api/v1/deactivate"
+        or "/api/v1/session/start" or "/api/v1/session/refresh";
     if (guarded && hmacKey.Length > 0)
     {
         ctx.Request.EnableBuffering();
@@ -93,6 +95,12 @@ app.MapPost("/api/v1/renew", async (TokenDto dto, LicenseService svc, HttpContex
     => Results.Ok(await svc.RenewAsync(dto, ClientIp(ctx))));
 app.MapPost("/api/v1/deactivate", async (TokenDto dto, LicenseService svc, HttpContext ctx)
     => Results.Ok(await svc.DeactivateAsync(dto, ClientIp(ctx))));
+
+// ------------------------------------------------------------------ runtime sessions (Palier B)
+app.MapPost("/api/v1/session/start", async (SessionStartDto dto, SessionService svc, HttpContext ctx)
+    => Results.Ok(await svc.StartAsync(dto, ClientIp(ctx))));
+app.MapPost("/api/v1/session/refresh", async (SessionRefreshDto dto, SessionService svc, HttpContext ctx)
+    => Results.Ok(await svc.RefreshAsync(dto, ClientIp(ctx))));
 
 // ------------------------------------------------------------------ admin auth
 app.MapPost("/api/v1/admin/login", async (LoginDto dto, AdminService svc) =>

@@ -1,6 +1,8 @@
 using System.Text;
 using System.Text.Json;
+using DataVortex.Core.Licensing;
 using DataVortex.Core.Models;
+using DataVortex.Licensing;
 using Microsoft.Extensions.Logging;
 
 namespace DataVortex.Core.Passculture;
@@ -39,12 +41,15 @@ public sealed class PasscultureClient
     private readonly ProxyPool _pool;
     private readonly ICaptchaSolver? _captcha;
     private readonly ILogger<PasscultureClient> _log;
+    private readonly ILicenseGate? _gate;
 
-    public PasscultureClient(ProxyPool pool, ICaptchaSolver? captcha = null, ILogger<PasscultureClient>? log = null)
+    public PasscultureClient(ProxyPool pool, ICaptchaSolver? captcha = null, ILogger<PasscultureClient>? log = null,
+        ILicenseGate? gate = null)
     {
         _pool = pool;
         _captcha = captcha;
         _log = log ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<PasscultureClient>.Instance;
+        _gate = gate;
     }
 
     /// <summary>How long a proxy is benched after the backend rate-limits it (HTTP 429).</summary>
@@ -125,6 +130,10 @@ public sealed class PasscultureClient
     /// </summary>
     public async Task<SignInResult> SignInAsync(string identifier, string password, string? captchaToken, CancellationToken ct = default)
     {
+        // Capability gate at the jewel: no CheckPassculture entitlement ⇒ no sign-in ⇒ the checker produces nothing.
+        // (Palier C will go further and make this method's recipe undecryptable without a live server session.)
+        _gate?.Require(Capability.CheckPassculture);
+
         var req = new Dictionary<string, object?>
         {
             ["identifier"] = identifier,

@@ -1,7 +1,9 @@
 using System.Text.Json;
 using DataVortex.Core.Abstractions;
 using DataVortex.Core.Configuration;
+using DataVortex.Core.Licensing;
 using DataVortex.Core.Models;
+using DataVortex.Licensing;
 using Microsoft.Extensions.Logging;
 
 namespace DataVortex.Core.Backfill;
@@ -47,6 +49,7 @@ public sealed class BackfillService : IBackfillService, IDisposable
     private readonly IPipelineCoordinator _coordinator;
     private readonly ISettingsService _settings;
     private readonly ILogger<BackfillService> _log;
+    private readonly ILicenseGate _license;
     private readonly string _statePath;
 
     private readonly object _gate = new();
@@ -63,11 +66,12 @@ public sealed class BackfillService : IBackfillService, IDisposable
     public bool IsEnabled => _enabled;
 
     public BackfillService(ITelegramService telegram, IPipelineCoordinator coordinator,
-        ISettingsService settings, AppPaths paths, ILoggerFactory loggerFactory)
+        ISettingsService settings, AppPaths paths, ILicenseGate licenseGate, ILoggerFactory loggerFactory)
     {
         _telegram = telegram;
         _coordinator = coordinator;
         _settings = settings;
+        _license = licenseGate;
         _log = loggerFactory.CreateLogger<BackfillService>();
         _statePath = Path.Combine(paths.Root, "backfill.json");
         _enabled = settings.Current.BackfillEnabled;
@@ -109,7 +113,9 @@ public sealed class BackfillService : IBackfillService, IDisposable
 
             while (!ct.IsCancellationRequested)
             {
-                if (!_enabled)
+                // Gated here (not at Start) so a mid-run licence lapse simply parks backfill — a third, distinct
+                // effect (goes quiet and idles) versus the pipeline's log/drop, so there's no uniform pattern.
+                if (!_enabled || !_license.Allows(Capability.Backfill))
                 {
                     Publish(BackfillState.Disabled, "");
                     await Task.Delay(5000, ct).ConfigureAwait(false);

@@ -69,13 +69,13 @@ public sealed partial class ShellViewModel : ObservableObject
         Sections = new ObservableCollection<NavSection>
         {
             new() { Name = "Dashboard", Glyph = "", ViewModel = dashboard },
-            new() { Name = "Channels",  Glyph = "", ViewModel = channels },
-            new() { Name = "Queues",    Glyph = "", ViewModel = queues },
-            new() { Name = "Files",     Glyph = "", ViewModel = files },
-            new() { Name = "Stats", Glyph = "", ViewModel = stats },
-            new() { Name = "Accounts",  Glyph = "", ViewModel = accounts },
-            new() { Name = "Settings",  Glyph = "", ViewModel = settingsPanel },
-            new() { Name = "Logs",      Glyph = "", ViewModel = logs }
+            new() { Name = "Channels", Glyph = "", ViewModel = channels },
+            new() { Name = "Queues", Glyph = "", ViewModel = queues },
+            new() { Name = "Files", Glyph = "", ViewModel = files },
+            new() { Name = "Stats", Glyph = "", ViewModel = stats },
+            new() { Name = "Accounts", Glyph = "", ViewModel = accounts },
+            new() { Name = "Settings", Glyph = "", ViewModel = settingsPanel },
+            new() { Name = "Logs", Glyph = "", ViewModel = logs }
         };
         SelectedSection = Sections[0];
 

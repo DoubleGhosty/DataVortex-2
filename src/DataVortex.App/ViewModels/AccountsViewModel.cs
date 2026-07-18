@@ -87,8 +87,8 @@ public sealed partial class AccountsViewModel : ObservableObject
     public int TotalResults { get => _totalResults; set { if (SetProperty(ref _totalResults, value)) { OnPropertyChanged(nameof(PageInfo)); OnPropertyChanged(nameof(CanPrev)); OnPropertyChanged(nameof(CanNext)); } } }
 
     public string PageInfo => TotalResults == 0
-        ? "0 compte"
-        : $"Page {Page + 1} / {Math.Max(1, (TotalResults + PageSize - 1) / PageSize)}  ·  {TotalResults} affichés";
+        ? "0 accounts"
+        : $"Page {Page + 1} / {Math.Max(1, (TotalResults + PageSize - 1) / PageSize)}  ·  {TotalResults} shown";
     public bool CanPrev => Page > 0;
     public bool CanNext => (Page + 1) * PageSize < TotalResults;
 
@@ -127,18 +127,18 @@ public sealed partial class AccountsViewModel : ObservableObject
     [RelayCommand]
     private void StopChecker()
     {
-        if (_checkerCts is { } cts && !cts.IsCancellationRequested) { cts.Cancel(); StatusText = "Arrêt demandé…"; }
+        if (_checkerCts is { } cts && !cts.IsCancellationRequested) { cts.Cancel(); StatusText = "Stop requested…"; }
     }
 
     /// <summary>Runs one checker job: rejects a second concurrent run, owns a cancellation token wired to the
     /// Stop button, and always resets the busy flag.</summary>
     private async Task RunCheckerAsync(Func<CancellationToken, Task> body)
     {
-        if (IsChecking) { StatusText = "Un check est déjà en cours."; return; }
+        if (IsChecking) { StatusText = "A check is already running."; return; }
         var cts = _checkerCts = new CancellationTokenSource();
         IsChecking = true;
         try { await body(cts.Token); }
-        catch (OperationCanceledException) { _ui.Post(() => StatusText = "Annulé."); }
+        catch (OperationCanceledException) { _ui.Post(() => StatusText = "Canceled."); }
         catch (Exception ex) { _ui.Post(() => StatusText = ex.Message); }
         finally
         {
@@ -212,11 +212,11 @@ public sealed partial class AccountsViewModel : ObservableObject
         if (entry is null) return;
         if (string.IsNullOrWhiteSpace(entry.RefreshToken) && string.IsNullOrWhiteSpace(entry.AccessToken))
         {
-            StatusText = "Aucun token disponible pour ce compte.";
+            StatusText = "No token available for this account.";
             return;
         }
 
-        StatusText = $"Ouverture de session pour {entry.Username}…";
+        StatusText = $"Opening session for {entry.Username}…";
         try
         {
             // Refresh the (short-lived) access token first; fall back to the stored one if refresh fails.
@@ -228,16 +228,16 @@ public sealed partial class AccountsViewModel : ObservableObject
             }
             if (string.IsNullOrWhiteSpace(access))
             {
-                StatusText = "Impossible d'obtenir un token valide (refresh expiré ?).";
+                StatusText = "Could not obtain a valid token (refresh expired?).";
                 return;
             }
 
             await BrowserSessionLauncher.OpenAsync(access!, entry.RefreshToken);
-            StatusText = $"Session ouverte dans Chrome pour {entry.Username}.";
+            StatusText = $"Session opened in Chrome for {entry.Username}.";
         }
         catch (Exception ex)
         {
-            StatusText = "Échec de l'ouverture de session : " + ex.Message;
+            StatusText = "Failed to open session: " + ex.Message;
         }
     }
 
@@ -254,7 +254,7 @@ public sealed partial class AccountsViewModel : ObservableObject
     private Task ReactivateAccountAsync(CredentialEntry? entry) => RunCheckerAsync(async ct =>
     {
         if (entry is null) return;
-        _ui.Post(() => StatusText = $"Réactivation de {entry.Username}…");
+        _ui.Post(() => StatusText = $"Reactivating {entry.Username}…");
         var (_, message) = await AccountTester.TryUnsuspendAsync(_passClient, _accounts, ToAccountRecord(entry), ct);
         _ui.Post(() => { StatusText = message; Refresh(); });
     });
@@ -265,20 +265,20 @@ public sealed partial class AccountsViewModel : ObservableObject
     private Task ReactivateAllRecupAsync() => RunCheckerAsync(async ct =>
     {
         var recup = await Task.Run(() => _storage.SearchAccounts(null, new[] { "RECUP" }, int.MaxValue, 0), ct);
-        if (recup.Count == 0) { _ui.Post(() => StatusText = "Aucun compte RECUP à réactiver."); return; }
+        if (recup.Count == 0) { _ui.Post(() => StatusText = "No RECUP account to reactivate."); return; }
 
         if (!_dialogs.Confirm(
-                $"Tenter de réactiver {recup.Count} compte(s) RECUP ?\n\n" +
-                "• Le refresh token est utilisé en priorité (0 captcha).\n" +
-                "• Un captcha n'est consommé que si le refresh a expiré.\n" +
-                "• Le backend refuse les comptes hors délai / non éligibles.",
-                "Réactiver les comptes RECUP"))
+                $"Try to reactivate {recup.Count} RECUP account(s)?\n\n" +
+                "• The refresh token is used first (0 captcha).\n" +
+                "• A captcha is only spent if the refresh has expired.\n" +
+                "• The backend refuses accounts out of window / not eligible.",
+                "Reactivate RECUP accounts"))
         {
-            _ui.Post(() => StatusText = "Réactivation annulée.");
+            _ui.Post(() => StatusText = "Reactivation canceled.");
             return;
         }
 
-        _ui.Post(() => StatusText = $"Réactivation de {recup.Count} compte(s) RECUP…");
+        _ui.Post(() => StatusText = $"Reactivating {recup.Count} RECUP account(s)…");
         await Task.Run(async () =>
         {
             int ok = 0, done = 0;
@@ -292,17 +292,17 @@ public sealed partial class AccountsViewModel : ObservableObject
                     if (d % 5 == 0 || d == recup.Count)
                     {
                         int o = Volatile.Read(ref ok);
-                        _ui.Post(() => StatusText = $"Réactivation : {d}/{recup.Count} — {o} réactivé(s)");
+                        _ui.Post(() => StatusText = $"Reactivating: {d}/{recup.Count} — {o} reactivated");
                     }
                 });
-            _ui.Post(() => { StatusText = $"Terminé : {ok}/{recup.Count} compte(s) réactivé(s)."; Refresh(); });
+            _ui.Post(() => { StatusText = $"Done: {ok}/{recup.Count} account(s) reactivated."; Refresh(); });
         }, ct);
     });
 
     [RelayCommand]
     private Task TestAccountsAsync() => RunCheckerAsync(async ct =>
     {
-        StatusText = "Test des comptes…";
+        StatusText = "Testing accounts…";
         await Task.Run(async () =>
         {
             // Collect every credential we know about: saved records + a fresh scan of extracted files.
@@ -323,7 +323,7 @@ public sealed partial class AccountsViewModel : ObservableObject
 
             if (unique.Count == 0)
             {
-                _ui.Post(() => StatusText = "Aucun compte à tester.");
+                _ui.Post(() => StatusText = "No account to test.");
                 return;
             }
 
@@ -340,7 +340,7 @@ public sealed partial class AccountsViewModel : ObservableObject
 
             _ui.Post(() =>
             {
-                StatusText = $"Terminé : {unique.Count} compte(s) unique(s) — {sent} envoyé(s) au backend, {alreadyKnown} déjà connu(s).";
+                StatusText = $"Done: {unique.Count} unique account(s) — {sent} sent to backend, {alreadyKnown} already known.";
                 Refresh();
             });
         }, ct);
@@ -355,11 +355,11 @@ public sealed partial class AccountsViewModel : ObservableObject
         var candidates = await Task.Run(() => _storage.LoadAccountsToRecheck(), ct);
         if (candidates.Count == 0)
         {
-            _ui.Post(() => StatusText = "Aucun compte à revérifier (pas de refresh token).");
+            _ui.Post(() => StatusText = "No account to re-verify (no refresh token).");
             return;
         }
 
-        _ui.Post(() => StatusText = $"Rafraîchissement de {candidates.Count} compte(s)…");
+        _ui.Post(() => StatusText = $"Refreshing {candidates.Count} account(s)…");
         await Task.Run(async () =>
         {
             int got = 0, suspended = 0, done = 0;
@@ -375,13 +375,13 @@ public sealed partial class AccountsViewModel : ObservableObject
                     if (d % 10 == 0 || d == candidates.Count)
                     {
                         int g = Volatile.Read(ref got), s = Volatile.Read(ref suspended);
-                        _ui.Post(() => StatusText = $"Rafraîchissement : {d}/{candidates.Count} — {g} crédit(s), {s} suspendu(s)");
+                        _ui.Post(() => StatusText = $"Refreshing: {d}/{candidates.Count} — {g} credit(s), {s} suspended");
                     }
                 });
 
             _ui.Post(() =>
             {
-                StatusText = $"Terminé : {got} crédit(s) récupéré(s), {suspended} compte(s) passé(s) suspendu(s) sur {candidates.Count} rafraîchi(s).";
+                StatusText = $"Done: {got} credit(s) fetched, {suspended} account(s) now suspended out of {candidates.Count} refreshed.";
                 Refresh();
             });
         }, ct);
@@ -397,18 +397,18 @@ public sealed partial class AccountsViewModel : ObservableObject
             .Select(a => new CredentialEntry(a.Url, a.Email, a.Password, 0, ""))
             .ToList());
 
-        if (creds.Count == 0) { StatusText = "Aucun compte enregistré à retester."; return; }
+        if (creds.Count == 0) { StatusText = "No saved account to retest."; return; }
 
         if (!_dialogs.Confirm(
-                $"⚠️ ATTENTION — re-test COMPLET de {creds.Count} compte(s).\n\n" +
-                "• Tous les résultats enregistrés vont être SUPPRIMÉS puis recalculés.\n" +
-                "• Chaque compte est retesté via une VRAIE connexion (PAS le refresh token).\n" +
-                "• Chaque test consomme un CAPTCHA (coût réel) et prend du temps.\n" +
-                "• Le panneau est vidé puis re-rempli au fur et à mesure.\n\n" +
-                "Action irréversible. Continuer ?",
-                "Re-tester TOUS les comptes"))
+                $"⚠️ WARNING — FULL retest of {creds.Count} account(s).\n\n" +
+                "• All saved results will be DELETED then recomputed.\n" +
+                "• Each account is retested via a REAL sign-in (NOT the refresh token).\n" +
+                "• Each test spends a CAPTCHA (real cost) and takes time.\n" +
+                "• The panel is cleared then refilled as results land.\n\n" +
+                "Irreversible action. Continue?",
+                "Retest ALL accounts"))
         {
-            StatusText = "Re-test annulé.";
+            StatusText = "Retest canceled.";
             return;
         }
 
@@ -416,7 +416,7 @@ public sealed partial class AccountsViewModel : ObservableObject
         {
             // Wipe all prior knowledge so every account is genuinely re-sent (not skipped as 'already known').
             _accounts.Reset();
-            _ui.Post(() => { Accounts.Clear(); StatusText = $"Re-test complet de {creds.Count} compte(s)…"; });
+            _ui.Post(() => { Accounts.Clear(); StatusText = $"Full retest of {creds.Count} account(s)…"; });
 
             await Task.Run(async () =>
             {
@@ -428,10 +428,10 @@ public sealed partial class AccountsViewModel : ObservableObject
                         await AccountTester.TestOnceAsync(_passClient, _accounts, c, token);
                         int d = Interlocked.Increment(ref done);
                         if (d % 5 == 0 || d == creds.Count)
-                            _ui.Post(() => { StatusText = $"Re-test : {d}/{creds.Count}"; Refresh(); });
+                            _ui.Post(() => { StatusText = $"Retest: {d}/{creds.Count}"; Refresh(); });
                     });
 
-                _ui.Post(() => { StatusText = $"Re-test complet terminé : {creds.Count} compte(s)."; Refresh(); });
+                _ui.Post(() => { StatusText = $"Full retest done: {creds.Count} account(s)."; Refresh(); });
             }, ct);
         });
     }
@@ -442,23 +442,23 @@ public sealed partial class AccountsViewModel : ObservableObject
     [RelayCommand]
     private async Task ImportComboListAsync()
     {
-        var path = _dialogs.PickFile("Combolist mail:pass (*.txt)|*.txt|Tous les fichiers (*.*)|*.*");
+        var path = _dialogs.PickFile("Combolist mail:pass (*.txt)|*.txt|All files (*.*)|*.*");
         if (string.IsNullOrEmpty(path)) return;
 
-        StatusText = "Lecture de la combolist…";
+        StatusText = "Reading combolist…";
         var (unique, malformed) = await Task.Run(() => ParseCombo(path));
 
         if (unique.Count == 0)
         {
-            StatusText = $"Aucune ligne mail:pass valide trouvée ({malformed} ligne(s) ignorée(s)).";
+            StatusText = $"No valid mail:pass line found ({malformed} line(s) skipped).";
             return;
         }
 
         if (!_dialogs.Confirm(
-                $"Envoyer {unique.Count} compte(s) unique(s) au checker ?\nChaque test non déjà connu consomme un captcha.",
-                "Importer une combolist"))
+                $"Send {unique.Count} unique account(s) to the checker?\nEach not-already-known test spends a captcha.",
+                "Import a combolist"))
         {
-            StatusText = "Import annulé.";
+            StatusText = "Import canceled.";
             return;
         }
 
@@ -480,7 +480,7 @@ public sealed partial class AccountsViewModel : ObservableObject
                             int s = Volatile.Read(ref sent), k = Volatile.Read(ref alreadyKnown);
                             _ui.Post(() =>
                             {
-                                StatusText = $"Checker : {d}/{unique.Count} — {s} envoyé(s), {k} déjà connu(s)";
+                                StatusText = $"Checker: {d}/{unique.Count} — {s} sent, {k} already known";
                                 Refresh();
                             });
                         }
@@ -488,8 +488,8 @@ public sealed partial class AccountsViewModel : ObservableObject
 
                 _ui.Post(() =>
                 {
-                    StatusText = $"Terminé : {unique.Count} compte(s) unique(s) — {sent} envoyé(s), " +
-                                 $"{alreadyKnown} déjà connu(s), {malformed} ligne(s) ignorée(s).";
+                    StatusText = $"Done: {unique.Count} unique account(s) — {sent} sent, " +
+                                 $"{alreadyKnown} already known, {malformed} line(s) skipped.";
                     Refresh();
                 });
             }, ct);

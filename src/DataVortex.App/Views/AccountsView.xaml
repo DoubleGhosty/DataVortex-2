@@ -10,117 +10,139 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="Accounts" Style="{StaticResource Title}"/>
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="Accounts" Style="{StaticResource Title}"/>
+            <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,0"
+                       Text="Passculture credentials found across archives and combolists."/>
+        </StackPanel>
 
         <Border Grid.Row="1" Style="{StaticResource Card}" Padding="14" Margin="0,14,0,0">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
+
+                <!-- Row 0: counters + actions -->
                 <DockPanel Grid.Row="0" Margin="0,0,0,14" LastChildFill="False">
-                    <!-- Left: live counters -->
                     <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
-                        <TextBlock Text="Comptes :" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
+                        <TextBlock Text="Accounts" Style="{StaticResource Caption}" VerticalAlignment="Center"/>
                         <Border Style="{StaticResource StatusBadge}" Margin="8,0,0,0">
                             <TextBlock Text="{Binding AccountCount}" FontSize="13" FontWeight="SemiBold"
                                        Foreground="{DynamicResource Accent}"/>
                         </Border>
-                        <TextBlock Text="Captchas :" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="18,0,0,0"/>
+                        <TextBlock Text="Captchas" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="18,0,0,0"/>
                         <Border Style="{StaticResource StatusBadge}" Margin="8,0,0,0">
                             <TextBlock Text="{Binding CaptchaRequests}" FontSize="13" FontWeight="SemiBold"
                                        Foreground="{DynamicResource Warning}"/>
                         </Border>
                     </StackPanel>
 
-                    <!-- Right: actions, grouped — [nouveaux tests (captcha)] | [revérification] | [stop] -->
                     <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
-                        <TextBlock Text="Tester (captcha) :" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock Text="Test (captcha):" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0"/>
                         <Button Content="Archives" Style="{StaticResource Ghost}" Command="{Binding TestAccountsCommand}"
-                                Margin="0,0,8,0" ToolTip="Teste les comptes trouvés dans les archives/fichiers extraits (1 captcha par nouveau compte)."/>
+                                Margin="0,0,8,0" ToolTip="Test the accounts found in archives / extracted files (1 captcha per new account)."/>
                         <Button Content="Combolist…" Command="{Binding ImportComboListCommand}"
-                                ToolTip="Importe un fichier .txt mail:pass et teste chaque ligne (1 captcha par nouveau compte)."/>
+                                ToolTip="Import a mail:pass .txt file and test each line (1 captcha per new account)."/>
 
                         <Border Width="1" Margin="14,2,14,2" Background="{DynamicResource Divider}"/>
 
-                        <Button Content="Revérifier" Style="{StaticResource Ghost}" Command="{Binding RefreshCreditsCommand}"
+                        <Button Content="Re-verify" Style="{StaticResource Ghost}" Command="{Binding RefreshCreditsCommand}"
                                 Margin="0,0,8,0"
-                                ToolTip="Revérifie tous les comptes non-INVALIDE via le refresh token (0 captcha). Si le refresh est rejeté (401, mot de passe peut-être changé), un vrai signin AVEC captcha est tenté → reclasse le compte ou le marque INVALIDE."/>
-                        <Button Content="Réactiver RECUP" Style="{StaticResource Ghost}" Command="{Binding ReactivateAllRecupCommand}"
+                                ToolTip="Re-verify every non-INVALID account via the refresh token (0 captcha). If the refresh is rejected (401, password maybe changed), a real sign-in WITH captcha is attempted → reclassifies the account or marks it INVALID."/>
+                        <Button Content="Reactivate RECUP" Style="{StaticResource Ghost}" Command="{Binding ReactivateAllRecupCommand}"
                                 Margin="0,0,8,0"
-                                ToolTip="Tente de réactiver tous les comptes RECUP (suspension réversible) via /account/unsuspend. Refresh token d'abord (0 captcha)."/>
-                        <Button Content="⚠ Tout retester" Style="{StaticResource Danger}" Command="{Binding RetestAllAccountsCommand}"
-                                ToolTip="DANGER : supprime tous les résultats et reteste chaque compte via une vraie connexion (1 captcha/compte). Irréversible."/>
+                                ToolTip="Try to reactivate every RECUP account (reversible suspension) via /account/unsuspend. Refresh token first (0 captcha)."/>
+                        <Button Content="⚠ Retest all" Style="{StaticResource Danger}" Command="{Binding RetestAllAccountsCommand}"
+                                ToolTip="DANGER: deletes all results and re-tests every account via a real sign-in (1 captcha/account). Irreversible."/>
 
                         <Border Width="1" Margin="14,2,14,2" Background="{DynamicResource Divider}"/>
 
                         <Button Content="Stop" Style="{StaticResource Ghost}" Command="{Binding StopCheckerCommand}"
-                                IsEnabled="{Binding IsChecking}" ToolTip="Annule l'opération en cours."/>
+                                IsEnabled="{Binding IsChecking}" ToolTip="Cancel the running operation."/>
                     </StackPanel>
                 </DockPanel>
 
-                <DockPanel Grid.Row="1" Margin="0,0,0,12" LastChildFill="False">
-                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
-                        <TextBlock Text="Filtrer :" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                        <CheckBox IsChecked="{Binding ShowValid}" Margin="0,0,16,0" FontWeight="SemiBold" Foreground="{DynamicResource Success}"
-                                  Content="{Binding CountValid, StringFormat='VALIDE : {0}'}"/>
-                        <CheckBox IsChecked="{Binding ShowBan}" Margin="0,0,16,0" FontWeight="SemiBold" Foreground="{DynamicResource Error}"
-                                  Content="{Binding CountBan, StringFormat='BAN : {0}'}"/>
-                        <CheckBox IsChecked="{Binding ShowCustom}" Margin="0,0,16,0" FontWeight="SemiBold" Foreground="{DynamicResource Warning}"
-                                  Content="{Binding CountCustom, StringFormat='CUSTOM : {0}'}"/>
-                        <CheckBox IsChecked="{Binding ShowExpire}" Margin="0,0,16,0" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondary}"
-                                  Content="{Binding CountExpire, StringFormat='EXPIRE : {0}'}"/>
-                        <CheckBox IsChecked="{Binding ShowRecup}" Margin="0,0,16,0" FontWeight="SemiBold" Foreground="{DynamicResource Accent}"
-                                  Content="{Binding CountRecup, StringFormat='RECUP : {0}'}"
-                                  ToolTip="Suspensions réversibles (UPON_USER_REQUEST / signalement de connexion) — réactivables."/>
-                        <CheckBox IsChecked="{Binding ShowInactive}" Margin="0,0,16,0" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondary}"
-                                  Content="{Binding CountInactive, StringFormat='INACTIVE : {0}'}"
-                                  ToolTip="Comptes inactifs génériques (isActive=False) — ni bannis ni utilisables confirmés."/>
-                        <Border Style="{StaticResource StatusBadge}" Margin="8,0,0,0">
-                            <TextBlock FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondary}"
-                                       Text="{Binding CountRetry, StringFormat='RETRY : {0}'}"/>
-                        </Border>
-                    </StackPanel>
+                <!-- Row 1: filter chips -->
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,12">
+                    <TextBlock Text="Filter" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                    <CheckBox Style="{StaticResource Chip}" Tag="{DynamicResource Success}" IsChecked="{Binding ShowValid}"
+                              Margin="0,0,8,0" Content="{Binding CountValid, StringFormat='Valid  {0}'}"/>
+                    <CheckBox Style="{StaticResource Chip}" Tag="{DynamicResource Error}" IsChecked="{Binding ShowBan}"
+                              Margin="0,0,8,0" Content="{Binding CountBan, StringFormat='Ban  {0}'}"/>
+                    <CheckBox Style="{StaticResource Chip}" Tag="{DynamicResource Warning}" IsChecked="{Binding ShowCustom}"
+                              Margin="0,0,8,0" Content="{Binding CountCustom, StringFormat='Custom  {0}'}"/>
+                    <CheckBox Style="{StaticResource Chip}" Tag="{DynamicResource Muted}" IsChecked="{Binding ShowExpire}"
+                              Margin="0,0,8,0" Content="{Binding CountExpire, StringFormat='Expired  {0}'}"/>
+                    <CheckBox Style="{StaticResource Chip}" Tag="{DynamicResource Accent}" IsChecked="{Binding ShowRecup}"
+                              Margin="0,0,8,0" Content="{Binding CountRecup, StringFormat='Recup  {0}'}"
+                              ToolTip="Reversible suspensions (UPON_USER_REQUEST / login report) — reactivatable."/>
+                    <CheckBox Style="{StaticResource Chip}" Tag="{DynamicResource Muted}" IsChecked="{Binding ShowInactive}"
+                              Margin="0,0,8,0" Content="{Binding CountInactive, StringFormat='Inactive  {0}'}"
+                              ToolTip="Generic inactive accounts (isActive=False) — neither banned nor confirmed usable."/>
+                    <Border Style="{StaticResource StatusBadge}" VerticalAlignment="Center">
+                        <TextBlock FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextSecondary}"
+                                   Text="{Binding CountRetry, StringFormat='Retry  {0}'}"/>
+                    </Border>
+                </StackPanel>
 
+                <!-- Row 2: pagination + search -->
+                <DockPanel Grid.Row="2" Margin="0,0,0,12" LastChildFill="False">
                     <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
                         <Button Content="◀" Style="{StaticResource Ghost}" Padding="10,3" Command="{Binding PrevPageCommand}"
                                 IsEnabled="{Binding CanPrev}"/>
                         <TextBlock Text="{Binding PageInfo}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="8,0"/>
                         <Button Content="▶" Style="{StaticResource Ghost}" Padding="10,3" Command="{Binding NextPageCommand}"
                                 IsEnabled="{Binding CanNext}" Margin="0,0,16,0"/>
-                        <TextBlock Text="Recherche email :" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock Text="Search email:" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="0,0,8,0"/>
                         <TextBox Width="220" VerticalContentAlignment="Center"
                                  Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged, Delay=250}"/>
                     </StackPanel>
                 </DockPanel>
 
-                <DataGrid Grid.Row="2" ItemsSource="{Binding Accounts}" AutoGenerateColumns="False" IsReadOnly="True">
+                <!-- Row 3: grid -->
+                <DataGrid Grid.Row="3" ItemsSource="{Binding Accounts}" AutoGenerateColumns="False" IsReadOnly="True">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Catégorie" Binding="{Binding Category}" Width="90"/>
-                        <DataGridTextColumn Header="Username" Binding="{Binding Username}" Width="*"/>
+                        <DataGridTemplateColumn Header="Status" Width="110" SortMemberPath="Category">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource StatusTag}">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Ellipse Width="7" Height="7" VerticalAlignment="Center" Margin="0,0,6,0"
+                                                     Fill="{Binding Category, Converter={StaticResource CategoryBrush}}"/>
+                                            <TextBlock Text="{Binding Category, Converter={StaticResource CategoryLabel}}"
+                                                       FontSize="11" FontWeight="SemiBold"
+                                                       Foreground="{Binding Category, Converter={StaticResource CategoryBrush}}"/>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="Email" Binding="{Binding Username}" Width="*"/>
                         <DataGridTextColumn Header="Password" Binding="{Binding Password}" Width="*"/>
                         <DataGridTextColumn Header="Credit (€)" Binding="{Binding CreditDisplay}" Width="110"/>
-                        <DataGridTextColumn Header="BirthDate" Binding="{Binding BirthDate}" Width="120"/>
+                        <DataGridTextColumn Header="Birth date" Binding="{Binding BirthDate}" Width="120"/>
                         <DataGridTextColumn Header="Tested" Binding="{Binding Tested}" Width="80"/>
                         <DataGridTemplateColumn Header="Session" Width="120">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
-                                    <Button Content="Connexion" Style="{StaticResource Ghost}" Padding="8,4" FontSize="11"
+                                    <Button Content="Open" Style="{StaticResource Ghost}" Padding="8,4" FontSize="11"
                                             Command="{Binding DataContext.OpenSessionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                             CommandParameter="{Binding}"
-                                            ToolTip="Ouvre Chrome déjà connecté à ce compte (token frais injecté)."/>
+                                            ToolTip="Open Chrome already signed into this account (fresh token injected)."/>
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTemplateColumn Header="Réactiver" Width="110">
+                        <DataGridTemplateColumn Header="Reactivate" Width="110">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
-                                    <Button Content="Réactiver" Padding="8,4" FontSize="11"
+                                    <Button Content="Reactivate" Padding="8,4" FontSize="11"
                                             Command="{Binding DataContext.ReactivateAccountCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                             CommandParameter="{Binding}"
-                                            ToolTip="Lève la suspension réversible de ce compte (unsuspend). 0 captcha si le refresh token est encore valide.">
+                                            ToolTip="Lift this account's reversible suspension (unsuspend). 0 captcha if the refresh token is still valid.">
                                         <Button.Style>
                                             <Style TargetType="Button" BasedOn="{StaticResource Ghost}">
                                                 <Setter Property="Visibility" Value="Collapsed"/>
@@ -138,7 +160,8 @@
                     </DataGrid.Columns>
                 </DataGrid>
 
-                <ScrollViewer Grid.Row="3" MaxHeight="120" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                <!-- Row 4: status line -->
+                <ScrollViewer Grid.Row="4" MaxHeight="120" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
                     <TextBlock Text="{Binding StatusText}" Style="{StaticResource Caption}" TextWrapping="Wrap"/>
                 </ScrollViewer>
             </Grid>

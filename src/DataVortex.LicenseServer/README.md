@@ -40,13 +40,17 @@ curl http://localhost:5000/api/v1/keys        # { "keys": ["<SPKI base64>", ...]
 
 ## Câbler le client (DataVortex)
 
-Dans `src/DataVortex.Core/Licensing/LicensingConstants.cs` :
+Tout est **compilé dans** `src/DataVortex.Core/Licensing/LicensingConstants.cs` (rien n'est dans `settings.json`,
+qui serait éditable) :
+- `DefaultServerUrl` → l'URL du serveur ;
 - `PublicKeys` → la (les) clé(s) publique(s) renvoyée(s) par `/keys` ;
 - `AppHmacKey` → **la même valeur** que `Security:AppHmacKey` du serveur ;
 - `ServerCertSpkiPin` → (optionnel) le pin SPKI du certificat TLS du serveur.
 
-Puis dans les réglages de l'app (`settings.json`) : `LicenseServerUrl` = URL du serveur, et **`LicensingEnabled = true`**
-pour activer la barrière d'activation au démarrage.
+L'**enforcement** n'est pas un flag : il est lié à la configuration de build. Un build **Release** exécute toujours
+la barrière d'activation au démarrage (édition commerciale) ; un build **Debug** compile un bypass dev (aucun serveur
+requis). Il n'y a aucun interrupteur dans le binaire livré. Les fonctionnalités sont en plus gatées par capacité
+(`ILicenseGate` / `Entitlements`) à leurs call-sites — voir `docs/LICENSING-HARDENING.md`.
 
 ## Générer une licence
 

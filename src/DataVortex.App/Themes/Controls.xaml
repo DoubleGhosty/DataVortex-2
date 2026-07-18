@@ -232,6 +232,52 @@
         <Setter Property="FontSize" Value="13"/>
     </Style>
 
+    <!-- ===================== Filter Chip (toggle) ===================== -->
+    <!-- A CheckBox rendered as a rounded toggle pill. Set Tag to the semantic brush for the dot/active border. -->
+    <Style x:Key="Chip" TargetType="CheckBox">
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextPrimary}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <Border x:Name="b" CornerRadius="20" Padding="11,5"
+                            Background="{DynamicResource BgCard}"
+                            BorderBrush="{DynamicResource Divider}" BorderThickness="1">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse x:Name="dot" Width="8" Height="8" Margin="0,0,7,0" VerticalAlignment="Center"
+                                     Fill="{TemplateBinding Tag}" Opacity="0.35"/>
+                            <ContentPresenter VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="b" Property="Background" Value="{DynamicResource BgCardHover}"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="dot" Property="Opacity" Value="1"/>
+                            <Setter TargetName="b" Property="BorderBrush"
+                                    Value="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}"/>
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="False">
+                            <Setter Property="Foreground" Value="{DynamicResource TextSecondary}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===================== Status Tag ===================== -->
+    <!-- Small pill for a coloured status token in tables. Set Tag to the semantic brush. -->
+    <Style x:Key="StatusTag" TargetType="Border">
+        <Setter Property="CornerRadius" Value="6"/>
+        <Setter Property="Padding" Value="8,3"/>
+        <Setter Property="HorizontalAlignment" Value="Left"/>
+        <Setter Property="Background" Value="{DynamicResource BgElevated}"/>
+    </Style>
+
     <!-- ===================== ProgressBar ===================== -->
     <Style x:Key="Thin" TargetType="ProgressBar">
         <Setter Property="Height" Value="8"/>

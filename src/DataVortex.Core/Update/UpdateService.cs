@@ -128,25 +128,29 @@ public sealed class GitHubUpdateService : IUpdateService
 
             var pid = Environment.ProcessId;
             var bat = Path.Combine(dir, "apply-update.bat");
+            // The batch takes the paths as ARGUMENTS (%1 current exe, %2 new exe, %3 pid) instead of baking them in.
+            // cmd.exe reads a .bat file in the console's OEM code page, so a hard-coded path with a non-ASCII char
+            // (e.g. a Windows username like "Léo") gets mangled and the relaunch fails. Arguments are passed by
+            // CreateProcessW as UTF-16, so accented paths survive — and the script body stays pure ASCII.
             var script =
                 "@echo off\r\n" +
                 "setlocal\r\n" +
-                $"set \"PIDV={pid}\"\r\n" +
                 ":wait\r\n" +
-                "tasklist /FI \"PID eq %PIDV%\" 2>nul | find \"%PIDV%\" >nul\r\n" +
+                "tasklist /FI \"PID eq %~3\" 2>nul | find \"%~3\" >nul\r\n" +
                 "if not errorlevel 1 (\r\n" +
                 "  timeout /t 1 /nobreak >nul\r\n" +
                 "  goto wait\r\n" +
                 ")\r\n" +
-                $"move /Y \"{newExe}\" \"{currentExe}\" >nul\r\n" +
-                $"start \"\" \"{currentExe}\"\r\n" +
+                "move /Y \"%~2\" \"%~1\" >nul\r\n" +
+                "start \"\" \"%~1\"\r\n" +
                 "del \"%~f0\"\r\n";
             await File.WriteAllTextAsync(bat, script, ct).ConfigureAwait(false);
 
             Process.Start(new ProcessStartInfo
             {
                 FileName = "cmd.exe",
-                Arguments = $"/c \"{bat}\"",
+                // /s + outer quotes: cmd strips only the outermost pair, so each quoted path is parsed as its own arg.
+                Arguments = $"/s /c \"\"{bat}\" \"{currentExe}\" \"{newExe}\" {pid}\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WorkingDirectory = dir

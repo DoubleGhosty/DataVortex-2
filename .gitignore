@@ -2,6 +2,17 @@
 bin/
 obj/
 publish/
+dist/
+# temporary verify/publish output dirs used during local builds
+_verifybuild/
+_pubbuild/
+_pub/
+_vs/
+_vd/
+_vr/
+
+# Local tooling / scratch
+temp/
 
 # Runtime data (downloads, extracted files, logs, session, settings)
 data/
@@ -15,3 +26,7 @@ data/
 # OS
 Thumbs.db
 .DS_Store
+
+# Local dev config (may hold secrets — e.g. the DB password)
+**/appsettings.Development.json
+**/appsettings.*.Local.json

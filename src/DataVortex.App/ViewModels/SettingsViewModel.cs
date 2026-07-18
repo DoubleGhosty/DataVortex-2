@@ -7,6 +7,8 @@ using DataVortex.Core.Abstractions;
 using DataVortex.Core.Accounts;
 using DataVortex.Core.Backfill;
 using DataVortex.Core.Configuration;
+using DataVortex.Core.Licensing;
+using DataVortex.Core.Pipeline;
 using DataVortex.Core.Updates;
 using Microsoft.Extensions.Logging;
 
@@ -27,6 +29,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly ITelegramService _telegram;
     private readonly IUpdateService _update;
     private readonly IDialogService _dialogs;
+    private readonly IDownloadDeduplicator _dedup;
+    private readonly LicenseGuard _license;
     private readonly ILogger<SettingsViewModel> _log;
 
     // ---- Pipeline (restart required) ----
@@ -76,6 +80,13 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty] private string statusText = "";
 
+    // ---- Licence (read-only status for the user) ----
+    [ObservableProperty] private bool licenseVisible;
+    [ObservableProperty] private string licenseStateText = "—";
+    [ObservableProperty] private string licenseTypeText = "—";
+    [ObservableProperty] private string licenseExpiryText = "—";
+    [ObservableProperty] private string licenseFeaturesText = "—";
+
     // ---- Updates ----
     [ObservableProperty] private string currentVersionText = "";
     [ObservableProperty] private string updateStatus = "";
@@ -84,7 +95,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public SettingsViewModel(ISettingsService settings, IPipelineCoordinator coordinator,
         IBackfillService backfill, ITelegramService telegram, IUpdateService update, IDialogService dialogs,
-        ILogger<SettingsViewModel> log)
+        IDownloadDeduplicator dedup, LicenseGuard license, ILogger<SettingsViewModel> log)
     {
         _settings = settings;
         _coordinator = coordinator;
@@ -92,9 +103,44 @@ public sealed partial class SettingsViewModel : ObservableObject
         _telegram = telegram;
         _update = update;
         _dialogs = dialogs;
+        _dedup = dedup;
+        _license = license;
         _log = log;
         CurrentVersionText = $"Version {_update.CurrentVersion}";
+#if DEBUG
+        LicenseVisible = false;   // dev build runs unlicensed (no server) → hide the licence panel
+#else
+        LicenseVisible = true;    // Release always enforces licensing → show the licence panel
+#endif
+        _license.StatusChanged += UpdateLicense;
+        UpdateLicense(_license.Current);
         LoadFromSettings();
+    }
+
+    private void UpdateLicense(LicenseStatus s)
+    {
+        LicenseStateText = s.State switch
+        {
+            LicenseState.Active => "Active",
+            LicenseState.Degraded => "Active (offline — grace period)",
+            LicenseState.Expired => "Expired",
+            LicenseState.Revoked => "Revoked",
+            LicenseState.Blocked => "Blocked — reconnection required",
+            LicenseState.HardwareChanged => "Hardware changed",
+            LicenseState.NotActivated => "Not activated",
+            _ => "—",
+        };
+        var c = s.Claims;
+        LicenseTypeText = c?.Type.ToString() ?? "—";
+        LicenseFeaturesText = c is not null && c.Features.Count > 0 ? string.Join(", ", c.Features) : "—";
+        if (c?.LicenseExpiresAt is { } exp)
+        {
+            var left = exp - DateTimeOffset.UtcNow;
+            LicenseExpiryText = left > TimeSpan.Zero
+                ? $"{exp.LocalDateTime:dd/MM/yyyy} — {(int)left.TotalDays} d left"
+                : $"{exp.LocalDateTime:dd/MM/yyyy} — expired";
+        }
+        else LicenseExpiryText = c is not null ? "Perpetual" : "—";
     }
 
     /// <summary>Mirrors the persisted settings into the editable fields. Also used after Save to show
@@ -133,7 +179,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         ProxyEnabled = s.ProxyEnabled;
         _importedProxies = null;
-        ProxyStatus = $"{s.Proxies.Count} proxy(s) enregistré(s).";
+        ProxyStatus = $"{s.Proxies.Count} proxy(ies) saved.";
 
         ParallelAccountChecks = s.MaxParallelAccountChecks.ToString();
 
@@ -144,7 +190,21 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void Reload()
     {
         LoadFromSettings();
-        StatusText = "Réglages rechargés depuis le disque.";
+        StatusText = "Settings reloaded from disk.";
+    }
+
+    /// <summary>Clears the download de-duplication memory so already-seen archives can be downloaded again.
+    /// A maintenance action — lives here rather than in the main toolbar.</summary>
+    [RelayCommand]
+    private void ClearDedup()
+    {
+        if (!_dialogs.Confirm(
+                $"Clear the de-duplication memory ({_dedup.Count} archive(s))?\nArchives may then be downloaded again.",
+                "Clear dedup store"))
+            return;
+        _dedup.Clear();
+        StatusText = "De-duplication memory cleared.";
+        _log.LogInformation("Dedup store cleared from settings");
     }
 
     /// <summary>Imports a proxy list (.txt), one "http://user:pass@host:port" per line. Held in memory and
@@ -152,7 +212,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private void ImportProxies()
     {
-        var path = _dialogs.PickFile("Liste de proxies (*.txt)|*.txt|Tous les fichiers (*.*)|*.*");
+        var path = _dialogs.PickFile("Proxy list (*.txt)|*.txt|All files (*.*)|*.*");
         if (string.IsNullOrEmpty(path)) return;
         try
         {
@@ -162,29 +222,29 @@ public sealed partial class SettingsViewModel : ObservableObject
                 .Distinct()
                 .ToList();
             _importedProxies = lines;
-            ProxyStatus = $"{lines.Count} proxy(s) importé(s) — Enregistrer pour appliquer (redémarrage requis).";
+            ProxyStatus = $"{lines.Count} proxy(ies) imported — Save to apply (restart required).";
         }
         catch (Exception ex)
         {
-            ProxyStatus = "Échec de lecture : " + ex.Message;
+            ProxyStatus = "Read failed: " + ex.Message;
         }
     }
 
     [RelayCommand]
     private async Task CheckUpdateAsync()
     {
-        UpdateStatus = "Vérification…";
+        UpdateStatus = "Checking…";
         UpdateAvailable = false;
         var info = await _update.CheckForUpdateAsync();
         _pendingUpdate = info;
         if (info is null)
         {
-            UpdateStatus = $"À jour (version {_update.CurrentVersion}).";
+            UpdateStatus = $"Up to date (version {_update.CurrentVersion}).";
         }
         else
         {
             UpdateAvailable = true;
-            UpdateStatus = $"Nouvelle version {info.Version} disponible.";
+            UpdateStatus = $"New version {info.Version} available.";
         }
     }
 
@@ -192,16 +252,16 @@ public sealed partial class SettingsViewModel : ObservableObject
     private async Task InstallUpdateAsync()
     {
         if (_pendingUpdate is null) return;
-        UpdateStatus = "Téléchargement et installation…";
+        UpdateStatus = "Downloading and installing…";
         var ok = await _update.PrepareAndLaunchUpdaterAsync(_pendingUpdate);
         if (ok)
         {
-            UpdateStatus = "Mise à jour prête — redémarrage…";
+            UpdateStatus = "Update ready — restarting…";
             System.Windows.Application.Current.Shutdown();
         }
         else
         {
-            UpdateStatus = "Échec : l'auto-update requiert un build publié (.exe). Voir les logs.";
+            UpdateStatus = "Failed: auto-update requires a published build (.exe). See the logs.";
         }
     }
 
@@ -209,6 +269,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void Save()
     {
         var s = _settings.Current;
+
+        // Snapshot the restart-only settings (+ note a proxy import) so we can prompt for a relaunch if they change.
+        var beforeRestart = RestartSignature(s);
+        var proxyImported = _importedProxies is not null;
 
         // Pipeline (restart required) — clamp to sane ranges; keep current value on unparsable input.
         s.MaxParallelDownloads = ParseInt(MaxParallelDownloads, 1, 64, s.MaxParallelDownloads);
@@ -265,10 +329,73 @@ public sealed partial class SettingsViewModel : ObservableObject
             _backfill.SetEnabled(BackfillEnabled); // SetEnabled persists + republishes state on its own
         ThemeManager.Apply(newTheme);
 
-        // Reflect clamped/normalised values back into the fields, then report.
+        // Did anything that's only read at startup change? If so, tell the user and offer to relaunch.
+        var restartNeeded = proxyImported || !RestartSignature(s).Equals(beforeRestart);
+
+        // Reflect clamped/normalised values back into the fields.
         LoadFromSettings();
-        StatusText = "Enregistré. Workers/files/retries, clé 2captcha et proxy prennent effet au prochain démarrage.";
         _log.LogInformation("Settings saved from the settings panel");
+
+        if (!restartNeeded)
+        {
+            StatusText = "Saved.";
+            return;
+        }
+
+        StatusText = "Saved — a restart is needed for some changes to take effect.";
+        if (_dialogs.Confirm(
+                "Some settings only take effect after a restart:\n\n" +
+                "• Pipeline workers, queue capacities and retries\n" +
+                "• Captcha provider and API keys\n" +
+                "• Proxy list and toggle\n\n" +
+                "Restart DataVortex now?",
+                "Restart required"))
+        {
+            RestartApp();
+        }
+    }
+
+    /// <summary>The settings that are only read at startup — used to detect whether a Save needs a relaunch.</summary>
+    private static (int, int, int, int, int, int, string, string, string, bool) RestartSignature(AppSettings s)
+        => (s.MaxParallelDownloads, s.MaxParallelProcessing, s.DownloadQueueCapacity, s.ProcessingQueueCapacity,
+            s.MaxDownloadRetries, s.RetryBaseDelayMs, s.TwoCaptchaApiKey, s.CapMonsterApiKey, s.CaptchaProvider,
+            s.ProxyEnabled);
+
+    /// <summary>Relaunches the app cleanly: a tiny batch WAITS for this process to fully exit (releasing the SQLite
+    /// DB + settings files) before starting the exe again, so the two instances never fight over those files. The
+    /// exe path travels through Arguments (UTF-16), and the batch body is pure ASCII, so an accented install path
+    /// (e.g. a "Léo" username) survives — same fix as the self-updater. This instance then shuts down.</summary>
+    private void RestartApp()
+    {
+        var exe = Environment.ProcessPath;
+        if (!string.IsNullOrEmpty(exe))
+        {
+            try
+            {
+                var pid = Environment.ProcessId;
+                var bat = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"datavortex-restart-{pid}.bat");
+                var script =
+                    "@echo off\r\n" +
+                    ":wait\r\n" +
+                    "tasklist /FI \"PID eq %~2\" 2>nul | find \"%~2\" >nul\r\n" +
+                    "if not errorlevel 1 (\r\n" +
+                    "  timeout /t 1 /nobreak >nul\r\n" +
+                    "  goto wait\r\n" +
+                    ")\r\n" +
+                    "start \"\" \"%~1\"\r\n" +
+                    "del \"%~f0\"\r\n";
+                System.IO.File.WriteAllText(bat, script);
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = $"/s /c \"\"{bat}\" \"{exe}\" {pid}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
+            }
+            catch (Exception ex) { _log.LogWarning(ex, "Failed to schedule app restart"); }
+        }
+        System.Windows.Application.Current.Shutdown();
     }
 
     private static int ParseInt(string? text, int min, int max, int fallback)

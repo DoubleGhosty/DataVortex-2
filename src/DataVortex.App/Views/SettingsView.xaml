@@ -4,6 +4,22 @@
              FontFamily="Segoe UI"
              TextElement.Foreground="{DynamicResource TextPrimary}">
 
+    <UserControl.Resources>
+        <!-- Icon glyph used in the tab headers (Segoe MDL2). -->
+        <Style x:Key="TabGlyph" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets"/>
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="Margin" Value="0,0,9,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <!-- "Restart required" badge reused on the cards whose value is only read at launch. -->
+        <Style x:Key="RestartBadge" TargetType="Border" BasedOn="{StaticResource StatusBadge}">
+            <Setter Property="DockPanel.Dock" Value="Left"/>
+            <Setter Property="Margin" Value="10,0,0,0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+    </UserControl.Resources>
+
     <Grid Margin="24">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -12,226 +28,325 @@
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <StackPanel Grid.Row="0">
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
             <TextBlock Text="Settings" Style="{StaticResource Title}"/>
             <TextBlock Style="{StaticResource Caption}" Margin="0,4,0,0" TextWrapping="Wrap"
-                       Text="Modifie la configuration sans editer settings.json. La plupart des reglages s'appliquent immediatement."/>
+                       Text="Grouped by domain. Most changes apply immediately; those marked &quot;restart required&quot; take effect on the next launch."/>
         </StackPanel>
 
-        <!-- Sections -->
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,20,0,0" Padding="0,0,8,0">
-            <StackPanel>
+        <!-- Tabbed sections -->
+        <TabControl Grid.Row="1">
 
-                <!-- Pipeline -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+            <!-- ============================ GENERAL ============================ -->
+            <TabItem>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal"
+                                TextElement.Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}">
+                        <TextBlock Text="&#xE713;" Style="{StaticResource TabGlyph}"/>
+                        <TextBlock Text="General" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </TabItem.Header>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="2,18,10,4">
                     <StackPanel>
-                        <DockPanel Margin="0,0,0,6">
-                            <TextBlock Text="Pipeline" Style="{StaticResource SectionHeader}" DockPanel.Dock="Left"/>
-                            <Border Style="{StaticResource StatusBadge}" DockPanel.Dock="Left" Margin="10,0,0,0"
-                                    Background="{DynamicResource BgElevated}">
-                                <TextBlock Text="redemarrage requis" Foreground="{DynamicResource Warning}"
-                                           FontSize="10" FontWeight="Medium"/>
-                            </Border>
-                        </DockPanel>
-                        <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,14" TextWrapping="Wrap"
-                                   Text="Workers paralleles, capacites des files et politique de retry."/>
-                        <WrapPanel>
-                            <StackPanel Width="160" Margin="0,0,14,12">
-                                <TextBlock Text="Workers download" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
-                                <TextBox Text="{Binding MaxParallelDownloads, UpdateSourceTrigger=PropertyChanged}"/>
+
+                        <!-- License (shown only when licensing is enabled) -->
+                        <Border Margin="0,0,0,14">
+                            <Border.Style>
+                                <Style TargetType="Border" BasedOn="{StaticResource Card}">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding LicenseVisible}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <StackPanel>
+                                <TextBlock Text="License" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,14" TextWrapping="Wrap"
+                                           Text="Your license status for this workstation (checked periodically against the server)."/>
+                                <WrapPanel>
+                                    <StackPanel Width="240" Margin="0,0,14,10">
+                                        <TextBlock Text="Status" Style="{StaticResource Caption}" Margin="0,0,0,4"/>
+                                        <TextBlock Text="{Binding LicenseStateText}" FontWeight="SemiBold"/>
+                                    </StackPanel>
+                                    <StackPanel Width="140" Margin="0,0,14,10">
+                                        <TextBlock Text="Type" Style="{StaticResource Caption}" Margin="0,0,0,4"/>
+                                        <TextBlock Text="{Binding LicenseTypeText}"/>
+                                    </StackPanel>
+                                    <StackPanel Width="260" Margin="0,0,14,10">
+                                        <TextBlock Text="Expiry" Style="{StaticResource Caption}" Margin="0,0,0,4"/>
+                                        <TextBlock Text="{Binding LicenseExpiryText}"/>
+                                    </StackPanel>
+                                    <StackPanel Width="260" Margin="0,0,14,10">
+                                        <TextBlock Text="Features" Style="{StaticResource Caption}" Margin="0,0,0,4"/>
+                                        <TextBlock Text="{Binding LicenseFeaturesText}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </WrapPanel>
                             </StackPanel>
-                            <StackPanel Width="160" Margin="0,0,14,12">
-                                <TextBlock Text="Workers extraction" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
-                                <TextBox Text="{Binding MaxParallelProcessing, UpdateSourceTrigger=PropertyChanged}"/>
+                        </Border>
+
+                        <!-- Appearance -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Text="Appearance" Style="{StaticResource SectionHeader}" Margin="0,0,0,10"/>
+                                <CheckBox Content="Light theme" IsChecked="{Binding IsLightTheme}"/>
                             </StackPanel>
-                            <StackPanel Width="160" Margin="0,0,14,12">
-                                <TextBlock Text="File download (capacite)" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
-                                <TextBox Text="{Binding DownloadQueueCapacity, UpdateSourceTrigger=PropertyChanged}"/>
+                        </Border>
+
+                        <!-- Updates -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Updates" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
+                                <TextBlock Text="{Binding CurrentVersionText}" Style="{StaticResource Caption}" Margin="0,0,0,12"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="Check for updates" Command="{Binding CheckUpdateCommand}" Margin="0,0,10,0"/>
+                                    <Button Content="Download and install" Style="{StaticResource Ghost}"
+                                            Command="{Binding InstallUpdateCommand}"
+                                            Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVis}}"/>
+                                </StackPanel>
+                                <TextBlock Text="{Binding UpdateStatus}" Style="{StaticResource Caption}" Margin="0,10,0,0" TextWrapping="Wrap"/>
                             </StackPanel>
-                            <StackPanel Width="160" Margin="0,0,14,12">
-                                <TextBlock Text="File extraction (capacite)" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
-                                <TextBox Text="{Binding ProcessingQueueCapacity, UpdateSourceTrigger=PropertyChanged}"/>
+                        </Border>
+
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- ============================ ARCHIVING ============================ -->
+            <TabItem>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal"
+                                TextElement.Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}">
+                        <TextBlock Text="&#xE896;" Style="{StaticResource TabGlyph}"/>
+                        <TextBlock Text="Archiving" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </TabItem.Header>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="2,18,10,4">
+                    <StackPanel>
+
+                        <!-- Performance (restart required) -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                            <StackPanel>
+                                <DockPanel Margin="0,0,0,6">
+                                    <TextBlock Text="Performance" Style="{StaticResource SectionHeader}" DockPanel.Dock="Left"/>
+                                    <Border Style="{StaticResource RestartBadge}">
+                                        <TextBlock Text="restart required" Foreground="{DynamicResource Warning}"
+                                                   FontSize="10" FontWeight="Medium"/>
+                                    </Border>
+                                </DockPanel>
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,14" TextWrapping="Wrap"
+                                           Text="Parallel workers, queue capacities and retry policy for the download pipeline."/>
+                                <WrapPanel>
+                                    <StackPanel Width="160" Margin="0,0,14,12">
+                                        <TextBlock Text="Download workers" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
+                                        <TextBox Text="{Binding MaxParallelDownloads, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+                                    <StackPanel Width="160" Margin="0,0,14,12">
+                                        <TextBlock Text="Extraction workers" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
+                                        <TextBox Text="{Binding MaxParallelProcessing, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+                                    <StackPanel Width="160" Margin="0,0,14,12">
+                                        <TextBlock Text="Download queue (capacity)" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
+                                        <TextBox Text="{Binding DownloadQueueCapacity, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+                                    <StackPanel Width="160" Margin="0,0,14,12">
+                                        <TextBlock Text="Extraction queue (capacity)" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
+                                        <TextBox Text="{Binding ProcessingQueueCapacity, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+                                    <StackPanel Width="160" Margin="0,0,14,12">
+                                        <TextBlock Text="Max retries" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
+                                        <TextBox Text="{Binding MaxDownloadRetries, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+                                    <StackPanel Width="160" Margin="0,0,14,12">
+                                        <TextBlock Text="Retry delay (ms)" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
+                                        <TextBox Text="{Binding RetryBaseDelayMs, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+                                </WrapPanel>
                             </StackPanel>
-                            <StackPanel Width="160" Margin="0,0,14,12">
-                                <TextBlock Text="Retries max" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
-                                <TextBox Text="{Binding MaxDownloadRetries, UpdateSourceTrigger=PropertyChanged}"/>
+                        </Border>
+
+                        <!-- Network (live) -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Text="Network" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
+                                <WrapPanel>
+                                    <StackPanel Width="300" Margin="0,0,20,0">
+                                        <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,8" TextWrapping="Wrap"
+                                                   Text="Download bandwidth cap. 0 = unlimited."/>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBox Text="{Binding BandwidthMBps, UpdateSourceTrigger=PropertyChanged}" Width="130"/>
+                                            <TextBlock Text="MB/s" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                    <StackPanel Width="320">
+                                        <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,8" TextWrapping="Wrap"
+                                                   Text="Chunks downloaded in parallel per file (default = 2). 8-16 speeds up high-latency links; too high triggers FLOOD_WAIT. Applies immediately."/>
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBox Text="{Binding ParallelTransfers, UpdateSourceTrigger=PropertyChanged}" Width="130"/>
+                                            <TextBlock Text="parallel chunks (1-32)" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </WrapPanel>
                             </StackPanel>
-                            <StackPanel Width="160" Margin="0,0,14,12">
-                                <TextBlock Text="Delai de retry (ms)" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
-                                <TextBox Text="{Binding RetryBaseDelayMs, UpdateSourceTrigger=PropertyChanged}"/>
+                        </Border>
+
+                        <!-- Downloaded files (live) -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Text="Downloaded files" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,10" TextWrapping="Wrap"
+                                           Text="Extensions downloaded from channels (one per line). Empty = download everything."/>
+                                <TextBox Text="{Binding DownloadExtensions, UpdateSourceTrigger=PropertyChanged}"
+                                         AcceptsReturn="True" TextWrapping="Wrap" MinHeight="72"
+                                         VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto"/>
                             </StackPanel>
-                        </WrapPanel>
-                    </StackPanel>
-                </Border>
+                        </Border>
 
-                <!-- Extraction -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
-                    <StackPanel>
-                        <TextBlock Text="Extraction" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
-                        <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,12" TextWrapping="Wrap"
-                                   Text="Filtrage des .txt par NOM de fichier (le contenu n'est jamais inspecte)."/>
-                        <CheckBox Content="N'extraire que les .txt dont le nom contient un mot-cle"
-                                  IsChecked="{Binding ExtractOnlyMatchingTxt}"/>
-                        <CheckBox Content="Conserver les .txt extraits sur le disque"
-                                  IsChecked="{Binding KeepExtractedFiles}" Margin="0,8,0,0"/>
-                        <TextBlock Style="{StaticResource Caption}" Margin="22,2,0,0" TextWrapping="Wrap"
-                                   Text="Decoche (defaut) : les .txt sont analyses en memoire, jamais ecrits sur disque — beaucoup moins d'I/O et aucun dossier par message a fort volume."/>
-                        <TextBlock Style="{StaticResource Caption}" Margin="0,14,0,6"
-                                   Text="Mots-cles (un par ligne)"/>
-                        <TextBox Text="{Binding ExtractKeywords, UpdateSourceTrigger=PropertyChanged}"
-                                 AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80"
-                                 VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto"/>
-                    </StackPanel>
-                </Border>
-
-                <!-- Download filter -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
-                    <StackPanel>
-                        <TextBlock Text="Telechargement" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
-                        <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,10" TextWrapping="Wrap"
-                                   Text="Extensions telechargees (une par ligne). Vide = tout telecharger."/>
-                        <TextBox Text="{Binding DownloadExtensions, UpdateSourceTrigger=PropertyChanged}"
-                                 AcceptsReturn="True" TextWrapping="Wrap" MinHeight="72"
-                                 VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto"/>
-                    </StackPanel>
-                </Border>
-
-                <!-- Network -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
-                    <StackPanel>
-                        <TextBlock Text="Reseau" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
-                        <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,10" TextWrapping="Wrap"
-                                   Text="Limite de bande passante de telechargement. 0 = illimite."/>
-                        <StackPanel Orientation="Horizontal">
-                            <TextBox Text="{Binding BandwidthMBps, UpdateSourceTrigger=PropertyChanged}" Width="130"/>
-                            <TextBlock Text="Mo/s" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                        </StackPanel>
-                        <TextBlock Style="{StaticResource Caption}" Margin="0,16,0,10" TextWrapping="Wrap"
-                                   Text="Morceaux telecharges en parallele par fichier (defaut WTelegram = 2). 8-16 accelere fortement sur liaison a forte latence ; trop haut = risque de FLOOD_WAIT. Applique immediatement."/>
-                        <StackPanel Orientation="Horizontal">
-                            <TextBox Text="{Binding ParallelTransfers, UpdateSourceTrigger=PropertyChanged}" Width="130"/>
-                            <TextBlock Text="parties // (1-32)" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
-
-                <!-- Backfill -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
-                    <StackPanel>
-                        <TextBlock Text="Backfill (rattrapage de l'historique)" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
-                        <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,12" TextWrapping="Wrap"
-                                   Text="Quand le pipeline est inactif, parcourt l'historique des canaux surveilles pour recuperer les anciennes archives."/>
-                        <CheckBox Content="Activer le backfill" IsChecked="{Binding BackfillEnabled}"/>
-                        <WrapPanel Margin="0,14,0,0">
-                            <StackPanel Width="210" Margin="0,0,14,0">
-                                <TextBlock Text="Delai d'inactivite (secondes)" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
-                                <TextBox Text="{Binding BackfillIdleSeconds, UpdateSourceTrigger=PropertyChanged}"/>
+                        <!-- Extraction (live) -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Text="Extraction" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,12" TextWrapping="Wrap"
+                                           Text="Filter .txt files by NAME (the content is never inspected)."/>
+                                <CheckBox Content="Only extract .txt whose name contains a keyword"
+                                          IsChecked="{Binding ExtractOnlyMatchingTxt}"/>
+                                <CheckBox Content="Keep extracted .txt on disk"
+                                          IsChecked="{Binding KeepExtractedFiles}" Margin="0,8,0,0"/>
+                                <TextBlock Style="{StaticResource Caption}" Margin="22,2,0,0" TextWrapping="Wrap"
+                                           Text="Unchecked (default): .txt files are scanned in memory, never written to disk — far less I/O and no per-message folders at high volume."/>
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,14,0,6"
+                                           Text="Keywords (one per line)"/>
+                                <TextBox Text="{Binding ExtractKeywords, UpdateSourceTrigger=PropertyChanged}"
+                                         AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80"
+                                         VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto"/>
                             </StackPanel>
-                            <StackPanel Width="210">
-                                <TextBlock Text="Taille de page (1-100)" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
-                                <TextBox Text="{Binding BackfillPageSize, UpdateSourceTrigger=PropertyChanged}"/>
+                        </Border>
+
+                        <!-- Backfill (live) -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Text="Backfill (history catch-up)" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,12" TextWrapping="Wrap"
+                                           Text="When the pipeline is idle, scans watched channels' history to fetch old archives."/>
+                                <CheckBox Content="Enable backfill" IsChecked="{Binding BackfillEnabled}"/>
+                                <WrapPanel Margin="0,14,0,0">
+                                    <StackPanel Width="210" Margin="0,0,14,0">
+                                        <TextBlock Text="Idle delay (seconds)" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
+                                        <TextBox Text="{Binding BackfillIdleSeconds, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+                                    <StackPanel Width="210">
+                                        <TextBlock Text="Page size (1-100)" Style="{StaticResource Caption}" Margin="0,0,0,6"/>
+                                        <TextBox Text="{Binding BackfillPageSize, UpdateSourceTrigger=PropertyChanged}"/>
+                                    </StackPanel>
+                                </WrapPanel>
                             </StackPanel>
-                        </WrapPanel>
-                    </StackPanel>
-                </Border>
+                        </Border>
 
-                <!-- Updates -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                        <!-- Maintenance -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Maintenance" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,12" TextWrapping="Wrap"
+                                           Text="Clears the memory of already-downloaded archives so they can be fetched again. Use only if you need to re-download."/>
+                                <Button Content="Clear dedup store" Style="{StaticResource Ghost}"
+                                        Command="{Binding ClearDedupCommand}" HorizontalAlignment="Left"/>
+                            </StackPanel>
+                        </Border>
+
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- ============================ ACCOUNTS ============================ -->
+            <TabItem>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal"
+                                TextElement.Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=TabItem}}">
+                        <TextBlock Text="&#xE77B;" Style="{StaticResource TabGlyph}"/>
+                        <TextBlock Text="Accounts" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </TabItem.Header>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="2,18,10,4">
                     <StackPanel>
-                        <TextBlock Text="Mises a jour" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
-                        <TextBlock Text="{Binding CurrentVersionText}" Style="{StaticResource Caption}" Margin="0,0,0,10"/>
-                        <StackPanel Orientation="Horizontal">
-                            <Button Content="Verifier les mises a jour" Command="{Binding CheckUpdateCommand}" Margin="0,0,10,0"/>
-                            <Button Content="Telecharger et installer" Style="{StaticResource Ghost}"
-                                    Command="{Binding InstallUpdateCommand}"
-                                    Visibility="{Binding UpdateAvailable, Converter={StaticResource BoolToVis}}"/>
-                        </StackPanel>
-                        <TextBlock Text="{Binding UpdateStatus}" Style="{StaticResource Caption}" Margin="0,10,0,0" TextWrapping="Wrap"/>
-                    </StackPanel>
-                </Border>
 
-                <!-- Appearance -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
-                    <StackPanel>
-                        <TextBlock Text="Apparence" Style="{StaticResource SectionHeader}" Margin="0,0,0,10"/>
-                        <CheckBox Content="Interface en theme clair" IsChecked="{Binding IsLightTheme}"/>
-                    </StackPanel>
-                </Border>
+                        <!-- Verification (live) -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Text="Verification (Passculture accounts)" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,10" TextWrapping="Wrap"
+                                           Text="Concurrent checks sent to the backend (combolist, archives and button share this global cap). HTTP 429 responses are retried automatically. Applies immediately."/>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBox Text="{Binding ParallelAccountChecks, UpdateSourceTrigger=PropertyChanged}" Width="130"/>
+                                    <TextBlock Text="concurrent checks (1-10)" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
 
-                <!-- Account checker -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
-                    <StackPanel>
-                        <TextBlock Text="Checker (comptes Passculture)" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
-                        <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,10" TextWrapping="Wrap"
-                                   Text="Nombre de verifications simultanees envoyees au backend (combolist, archives et bouton partagent ce plafond global). Les reponses 429 sont reessayees automatiquement. Applique immediatement."/>
-                        <StackPanel Orientation="Horizontal">
-                            <TextBox Text="{Binding ParallelAccountChecks, UpdateSourceTrigger=PropertyChanged}" Width="130"/>
-                            <TextBlock Text="checks simultanes (1-10)" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="10,0,0,0"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
+                        <!-- Captcha (restart required) -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                            <StackPanel>
+                                <DockPanel Margin="0,0,0,10">
+                                    <TextBlock Text="Captcha" Style="{StaticResource SectionHeader}" DockPanel.Dock="Left"/>
+                                    <Border Style="{StaticResource RestartBadge}">
+                                        <TextBlock Text="restart required" Foreground="{DynamicResource Warning}"
+                                                   FontSize="10" FontWeight="Medium"/>
+                                    </Border>
+                                </DockPanel>
+                                <CheckBox Content="Use CapMonster (otherwise 2captcha)"
+                                          IsChecked="{Binding UseCapMonster}" Margin="0,0,0,12"/>
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,6" Text="2captcha API key"/>
+                                <TextBox Text="{Binding TwoCaptchaApiKey, UpdateSourceTrigger=PropertyChanged}"/>
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,12,0,6" Text="CapMonster Cloud API key"/>
+                                <TextBox Text="{Binding CapMonsterApiKey, UpdateSourceTrigger=PropertyChanged}"/>
+                            </StackPanel>
+                        </Border>
 
-                <!-- Proxy (Passculture) -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
-                    <StackPanel>
-                        <DockPanel Margin="0,0,0,6">
-                            <TextBlock Text="Proxy (requetes Passculture)" Style="{StaticResource SectionHeader}" DockPanel.Dock="Left"/>
-                            <Border Style="{StaticResource StatusBadge}" DockPanel.Dock="Left" Margin="10,0,0,0"
-                                    Background="{DynamicResource BgElevated}">
-                                <TextBlock Text="redemarrage requis" Foreground="{DynamicResource Warning}"
-                                           FontSize="10" FontWeight="Medium"/>
-                            </Border>
-                        </DockPanel>
-                        <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,10" TextWrapping="Wrap"
-                                   Text="Liste de proxies en rotation (round-robin, 1 par requete) pour repartir les requetes Passculture sur plusieurs IP. Fichier .txt, une URL par ligne : http://user:pass@host:port"/>
-                        <CheckBox Content="Activer les proxies" IsChecked="{Binding ProxyEnabled}"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
-                            <Button Content="Importer une liste (.txt)" Command="{Binding ImportProxiesCommand}"/>
-                            <TextBlock Text="{Binding ProxyStatus}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="12,0,0,0"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Border>
+                        <!-- Proxy (restart required) -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                            <StackPanel>
+                                <DockPanel Margin="0,0,0,6">
+                                    <TextBlock Text="Proxy (Passculture requests)" Style="{StaticResource SectionHeader}" DockPanel.Dock="Left"/>
+                                    <Border Style="{StaticResource RestartBadge}">
+                                        <TextBlock Text="restart required" Foreground="{DynamicResource Warning}"
+                                                   FontSize="10" FontWeight="Medium"/>
+                                    </Border>
+                                </DockPanel>
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,10" TextWrapping="Wrap"
+                                           Text="Rotating proxy list (round-robin, 1 per request) to spread requests across several IPs. .txt file, one URL per line: http://user:pass@host:port"/>
+                                <CheckBox Content="Enable proxies" IsChecked="{Binding ProxyEnabled}"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                                    <Button Content="Import a list (.txt)" Command="{Binding ImportProxiesCommand}"/>
+                                    <TextBlock Text="{Binding ProxyStatus}" Style="{StaticResource Caption}" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
 
-                <!-- Passculture / captcha -->
-                <Border Style="{StaticResource Card}" Margin="0,0,0,0">
-                    <StackPanel>
-                        <DockPanel Margin="0,0,0,6">
-                            <TextBlock Text="Passculture / captcha" Style="{StaticResource SectionHeader}" DockPanel.Dock="Left"/>
-                            <Border Style="{StaticResource StatusBadge}" DockPanel.Dock="Left" Margin="10,0,0,0"
-                                    Background="{DynamicResource BgElevated}">
-                                <TextBlock Text="redemarrage requis" Foreground="{DynamicResource Warning}"
-                                           FontSize="10" FontWeight="Medium"/>
-                            </Border>
-                        </DockPanel>
-                        <CheckBox Content="Utiliser CapMonster (sinon 2captcha)"
-                                  IsChecked="{Binding UseCapMonster}" Margin="0,0,0,10"/>
-                        <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,6" Text="Cle API 2captcha"/>
-                        <TextBox Text="{Binding TwoCaptchaApiKey, UpdateSourceTrigger=PropertyChanged}"/>
-                        <TextBlock Style="{StaticResource Caption}" Margin="0,12,0,6" Text="Cle API CapMonster Cloud"/>
-                        <TextBox Text="{Binding CapMonsterApiKey, UpdateSourceTrigger=PropertyChanged}"/>
-                    </StackPanel>
-                </Border>
+                        <!-- Notifications (live) -->
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Telegram notifications" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,10" TextWrapping="Wrap"
+                                           Text="Sends every freshly-found VALID account (balance &gt; 0) to Telegram via the app's client."/>
+                                <CheckBox Content="Send every VALID account (balance > 0) to Telegram"
+                                          IsChecked="{Binding NotifyOnTelegram}" Margin="0,0,0,12"/>
+                                <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,6" TextWrapping="Wrap"
+                                           Text="Recipient: a group/channel name, or @username."/>
+                                <TextBox Text="{Binding NotifyTarget, UpdateSourceTrigger=PropertyChanged}"
+                                         IsEnabled="{Binding NotifyOnTelegram}"/>
+                            </StackPanel>
+                        </Border>
 
-                <!-- Notifications -->
-                <Border Style="{StaticResource Card}" Margin="0,14,0,0">
-                    <StackPanel>
-                        <TextBlock Text="Notifications Telegram" Style="{StaticResource SectionHeader}" Margin="0,0,0,6"/>
-                        <CheckBox Content="Envoyer chaque compte VALIDE (solde > 0) sur Telegram"
-                                  IsChecked="{Binding NotifyOnTelegram}" Margin="0,0,0,10"/>
-                        <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,6" TextWrapping="Wrap"
-                                   Text="Destinataire : nom d'un groupe/canal, ou @utilisateur (ex. vv)."/>
-                        <TextBox Text="{Binding NotifyTarget, UpdateSourceTrigger=PropertyChanged}"
-                                 IsEnabled="{Binding NotifyOnTelegram}"/>
                     </StackPanel>
-                </Border>
+                </ScrollViewer>
+            </TabItem>
 
-            </StackPanel>
-        </ScrollViewer>
+        </TabControl>
 
         <!-- Action bar -->
         <DockPanel Grid.Row="2" Margin="0,16,0,0" LastChildFill="False">
-            <Button Content="Enregistrer" Command="{Binding SaveCommand}" DockPanel.Dock="Left" Margin="0,0,10,0"/>
-            <Button Content="Recharger" Style="{StaticResource Ghost}" Command="{Binding ReloadCommand}" DockPanel.Dock="Left"/>
+            <Button Content="Save" Command="{Binding SaveCommand}" DockPanel.Dock="Left" Margin="0,0,10,0"/>
+            <Button Content="Reload" Style="{StaticResource Ghost}" Command="{Binding ReloadCommand}" DockPanel.Dock="Left"/>
             <TextBlock Text="{Binding StatusText}" Style="{StaticResource Caption}" DockPanel.Dock="Right"
                        VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="560" TextAlignment="Right"/>
         </DockPanel>

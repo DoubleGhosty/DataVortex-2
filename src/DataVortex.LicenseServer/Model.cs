@@ -57,6 +57,23 @@ public class Activation
     public string? Ip { get; set; }
 }
 
+/// <summary>A short-lived, hardware-bound runtime session (Palier B). The client must hold a live one to use the
+/// online-gated features; it's refreshed continuously and expires fast, so revocation / seat overflow / a network
+/// lapse cuts the online features within one <c>ExpiresAt</c> window regardless of the long lease.</summary>
+public class Session
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid LicenseId { get; set; }
+    public License? License { get; set; }
+    /// <summary>Fingerprint hash the session is bound to — a session can't be moved to another machine.</summary>
+    public string FingerprintHash { get; set; } = "";
+    public bool Active { get; set; } = true;
+    public DateTimeOffset StartedAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset LastRefreshAt { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset ExpiresAt { get; set; }
+    public string? Ip { get; set; }
+}
+
 public class AuthLog
 {
     public Guid Id { get; set; } = Guid.NewGuid();
@@ -113,6 +130,22 @@ public sealed record VerifyDto(
     [property: JsonPropertyName("fingerprint")] FingerprintDto? Fingerprint);
 
 public sealed record TokenDto([property: JsonPropertyName("token")] string? Token);
+
+public sealed record SessionStartDto(
+    [property: JsonPropertyName("token")] string? Token,
+    [property: JsonPropertyName("fingerprint")] FingerprintDto? Fingerprint);
+
+public sealed record SessionRefreshDto(
+    [property: JsonPropertyName("session_token")] string? SessionToken,
+    [property: JsonPropertyName("fingerprint")] FingerprintDto? Fingerprint);
+
+/// <summary>Session start/refresh response: the opaque session token + its short expiry, or a status the client
+/// acts on (Ok / Revoked / Suspended / Expired / HardwareMismatch / ActivationLimit).</summary>
+public sealed record SessionApiResponse(
+    [property: JsonPropertyName("status")] string status,
+    [property: JsonPropertyName("session_token")] string? session_token = null,
+    [property: JsonPropertyName("expires_at")] DateTimeOffset? expires_at = null,
+    [property: JsonPropertyName("message")] string? message = null);
 
 public sealed record GenerateLicenseDto(
     string Email, string? Company, string Type, int MaxActivations,

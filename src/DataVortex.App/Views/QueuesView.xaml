@@ -41,7 +41,7 @@
                                             <ProgressBar Style="{StaticResource Thin}" Minimum="0" Maximum="1"
                                                          Value="{Binding Progress, Mode=OneWay}" Width="100"
                                                          VerticalAlignment="Center"
-                                                         Foreground="{DynamicResource Cyan}"/>
+                                                         Foreground="{DynamicResource Accent}"/>
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>

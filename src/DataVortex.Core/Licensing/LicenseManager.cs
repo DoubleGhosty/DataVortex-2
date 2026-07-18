@@ -26,8 +26,10 @@ public sealed class LicenseStatus
     public LicenseClaims? Claims { get; init; }
     public string? Message { get; init; }
 
-    /// <summary>The app may run (fully or in grace) in these states.</summary>
-    public bool IsUsable => State is LicenseState.Active or LicenseState.Degraded;
+    // NOTE: there is deliberately no single "IsUsable" boolean any more. It was the whole attack surface — one
+    // property, consumed everywhere, neutralised by a 2-byte patch. Callers now test the specific state(s) they
+    // care about inline, and (more importantly) real features are gated by ILicenseGate/Entitlements at their
+    // execution sites rather than by one shared flag.
 }
 
 /// <summary>Abstraction over the licence lifecycle so view-models and the startup gate depend on an interface
@@ -36,6 +38,7 @@ public interface ILicenseManager
 {
     Task<LicenseStatus> ActivateAsync(string licenseKey, CancellationToken ct = default);
     Task<LicenseStatus> EvaluateAsync(CancellationToken ct = default);
+    Task<LicenseStatus> EvaluateAsync(bool forceServerCheck, CancellationToken ct = default);
     Task<LicenseStatus> RenewAsync(CancellationToken ct = default);
     Task DeactivateAsync(CancellationToken ct = default);
 }
@@ -84,7 +87,13 @@ public sealed class LicenseManager : ILicenseManager
     /// <summary>Evaluates the current licence (call at startup and periodically). Uses the local signed lease
     /// while it is valid (works offline), re-verifies online once it expires, and falls back to a grace period
     /// on a network outage before blocking.</summary>
-    public async Task<LicenseStatus> EvaluateAsync(CancellationToken ct = default)
+    public Task<LicenseStatus> EvaluateAsync(CancellationToken ct = default) => EvaluateAsync(false, ct);
+
+    /// <summary>As <see cref="EvaluateAsync(CancellationToken)"/>, but <paramref name="forceServerCheck"/> hits the
+    /// server even when the local lease is still valid — this is what lets a heartbeat catch a suspension /
+    /// revocation between lease renewals. A network failure with a still-valid lease stays Active (a blip must not
+    /// lock the app out).</summary>
+    public async Task<LicenseStatus> EvaluateAsync(bool forceServerCheck, CancellationToken ct = default)
     {
         var data = _store.Load();
         if (data is null) return Status(LicenseState.NotActivated);
@@ -98,7 +107,15 @@ public sealed class LicenseManager : ILicenseManager
         if (now + TimeSpan.FromHours(1) < data.LastSeen)
             return Status(LicenseState.Blocked, "horloge système incohérente", claims);
 
-        // Hardware binding — local UX guard; the server re-checks authoritatively at /verify.
+        // Token-binding (V6): the stored reference snapshot must be the EXACT one the signed token was issued for.
+        // The server sets claims.FingerprintHash = snapshot.Hash at activation, so if the locally-stored reference
+        // hashes to something else, it was swapped — the classic "pair a leaked token with THIS machine's reference
+        // to run it anywhere" replay. Reject it. (Legit activations always match: we stored that very snapshot.)
+        if (!string.Equals(data.Reference.Hash, claims.FingerprintHash, StringComparison.Ordinal))
+            return Status(LicenseState.HardwareChanged, "jeton lié à une autre machine — réactivation requise", claims);
+
+        // Hardware binding — fuzzy match of the CURRENT machine against that verified reference (tolerates drift).
+        // Local UX guard; the server re-checks authoritatively at /verify.
         var fp = HardwareFingerprint.Collect();
         if (!fp.Matches(data.Reference, _opts.FingerprintThreshold))
             return Status(LicenseState.HardwareChanged, "matériel modifié — réactivation requise", claims);
@@ -106,11 +123,11 @@ public sealed class LicenseManager : ILicenseManager
         if (claims.IsLicenseExpired(now))
             return Status(LicenseState.Expired, "licence expirée", claims);
 
-        // Lease still valid → Active, fully offline. (Opportunistic renewal is a separate call on a timer.)
-        if (claims.IsLeaseValid(now))
+        // Lease still valid → Active, fully offline — UNLESS a heartbeat forces a server check to catch revocation.
+        if (claims.IsLeaseValid(now) && !forceServerCheck)
             return Status(LicenseState.Active, null, claims);
 
-        // Lease expired → must re-verify online.
+        // Lease expired, or a forced heartbeat → check with the server.
         LicenseResponse resp;
         try { resp = await _api.VerifyAsync(data.Token, fp.Snapshot(), ct).ConfigureAwait(false); }
         catch { resp = Offline; }
@@ -133,9 +150,15 @@ public sealed class LicenseManager : ILicenseManager
 
             case LicenseServerStatus.Expired:
                 return Status(LicenseState.Expired, "licence expirée", claims);
+
+            case LicenseServerStatus.HardwareMismatch:
+                return Status(LicenseState.HardwareChanged, "licence liée à une autre machine", claims);
         }
 
-        // Server unreachable (or a transient error) → grace period measured from lease expiry.
+        // Server unreachable / transient. If the lease still covers us (a forced heartbeat that just couldn't
+        // reach the server), stay Active — a network blip must not lock the app out. Otherwise grace, then block.
+        if (claims.IsLeaseValid(now))
+            return Status(LicenseState.Active, null, claims);
         var graceEnd = claims.LeaseExpiresAt + _opts.GracePeriod;
         return now < graceEnd
             ? Status(LicenseState.Degraded, "hors ligne — période de grâce", claims)

@@ -6,13 +6,22 @@ namespace DataVortex.Core.Licensing;
 /// SubjectPublicKeyInfo — before enabling licensing in production.</summary>
 public static class LicensingConstants
 {
+    // NOTE: there is deliberately NO "LicensingEnforced" flag any more. A single bool that turns licensing on/off is
+    // a constant-foldable one-line patch (or, as a setting, a one-character edit). Enforcement is now tied to the
+    // BUILD: a Release build always runs the licence gate (App startup), a Debug build compiles a dev bypass in its
+    // place. There is no in-binary switch to flip in the shipped product.
+
     /// <summary>Embedded server public keys (SPKI, base64): the active key plus any "next" key during rotation.
     /// EMPTY until the licence server is provisioned — while empty, activation always fails closed (no token can
     /// be verified), which is the safe default.</summary>
-    public static readonly IReadOnlyList<string> PublicKeys = Array.Empty<string>();
+    public static readonly IReadOnlyList<string> PublicKeys = new[]
+    {
+        // LOCAL TEST server key. Replace with the production server's /keys value before shipping.
+        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEtDqMd3jYs/Ke83iz/Ut+BGV2Ut+Ed9KY/vbQiSlwIwC40vo+xAwsLMXN8CtvVooCikCD7Eh7RGLXlppWKND2dw==",
+    };
 
     /// <summary>Default licence-server base URL. Overridable via <c>AppSettings.LicenseServerUrl</c>.</summary>
-    public const string DefaultServerUrl = "https://licences.datavortex.app/";
+    public const string DefaultServerUrl = "http://localhost:5000"; // LOCAL TEST — restore the prod URL before shipping
 
     /// <summary>Shared app-authentication key (HMAC), added to each request as X-Signature/X-Timestamp/X-Nonce and
     /// matched by the server's <c>Security:AppHmacKey</c>. EMPTY disables request signing (dev). Embed a real key
