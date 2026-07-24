@@ -3,6 +3,7 @@ bin/
 obj/
 publish/
 dist/
+dist-server/
 # temporary verify/publish/audit output dirs used during local builds
 _verifybuild/
 _pubbuild/
@@ -31,4 +32,8 @@ Thumbs.db
 
 # Local dev config (may hold secrets — e.g. the DB password)
 **/appsettings.Development.json
+**/appsettings.Production.json
 **/appsettings.*.Local.json
+
+# Generated deployment secrets (signing private key, HMAC key, TLS pfx + password, filled prod config)
+_secrets/

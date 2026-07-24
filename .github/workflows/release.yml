@@ -28,14 +28,22 @@ jobs:
 
       # Obfuscated single-file publish: build -> obfuscate Core+Licensing (Obfuscar, installed by the
       # script) -> publish --no-build so the bundle embeds the obfuscated assemblies. See publish.ps1.
-      - name: Publish obfuscated single-file exe
+      # DV_HMAC_KEY (repo secret) is injected into the client build so request signing is enabled in releases.
+      # Leave the secret unset to ship with signing disabled.
+      - name: Publish obfuscated single-file exe (client)
         shell: pwsh
-        run: ./publish.ps1 -Output publish -Version ${{ steps.ver.outputs.version }}
+        run: ./publish.ps1 -Output publish -Version ${{ steps.ver.outputs.version }} -HmacKey '${{ secrets.DV_HMAC_KEY }}'
 
-      - name: Create release and upload exe
+      - name: Publish licence server exe
+        shell: pwsh
+        run: ./publish-server.ps1 -Output publish-server -Version ${{ steps.ver.outputs.version }}
+
+      - name: Create release and upload exes
         uses: softprops/action-gh-release@v2
         with:
           name: DataVortex ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
-          files: publish/DataVortex.exe
+          files: |
+            publish/DataVortex.exe
+            publish-server/DataVortex.LicenseServer.exe
           generate_release_notes: true

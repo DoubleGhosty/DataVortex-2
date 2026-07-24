@@ -24,4 +24,17 @@
     <ProjectReference Include="..\DataVortex.Licensing\DataVortex.Licensing.csproj" />
   </ItemGroup>
 
+  <!-- Build-time injection of the app HMAC key (a secret — NEVER committed). Provide it with -p:DvHmacKey=<key>
+       (publish.ps1 does this) or the DV_HMAC_KEY env var. When absent (dev), no attribute is emitted and
+       LicensingConstants.AppHmacKey reads back "" ⇒ request signing is disabled. -->
+  <PropertyGroup>
+    <DvHmacKey Condition="'$(DvHmacKey)' == ''">$(DV_HMAC_KEY)</DvHmacKey>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(DvHmacKey)' != ''">
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>DvHmacKey</_Parameter1>
+      <_Parameter2>$(DvHmacKey)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
+
 </Project>

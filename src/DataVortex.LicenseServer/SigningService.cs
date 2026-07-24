@@ -11,10 +11,15 @@ namespace DataVortex.LicenseServer;
 public sealed class SigningService
 {
     private readonly IServiceScopeFactory _scopes;
+    private readonly IConfiguration _config;
     private readonly object _gate = new();
     private (string Kid, ECDsa Key)? _active;
 
-    public SigningService(IServiceScopeFactory scopes) => _scopes = scopes;
+    public SigningService(IServiceScopeFactory scopes, IConfiguration config)
+    {
+        _scopes = scopes;
+        _config = config;
+    }
 
     /// <summary>Loads the active signing key, creating one on first run. Call once at startup.</summary>
     public async Task InitializeAsync()
@@ -25,14 +30,32 @@ public sealed class SigningService
         var rec = await db.SigningKeys.FirstOrDefaultAsync(k => k.Active);
         if (rec is null)
         {
-            using var ec = ECDsa.Create(ECCurve.NamedCurves.nistP256);
-            rec = new SigningKeyRecord
+            // Prefer an operator-provided key (Signing:PrivateKeyPkcs8) so the client can embed the matching
+            // public key BEFORE the server ever runs; otherwise generate a fresh one (dev / unmanaged).
+            var providedPriv = _config["Signing:PrivateKeyPkcs8"];
+            if (!string.IsNullOrWhiteSpace(providedPriv))
             {
-                Kid = "k" + DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
-                PublicKeySpki = Convert.ToBase64String(ec.ExportSubjectPublicKeyInfo()),
-                PrivateKeyPkcs8 = Convert.ToBase64String(ec.ExportPkcs8PrivateKey()),
-                Active = true,
-            };
+                using var ec = ECDsa.Create();
+                ec.ImportPkcs8PrivateKey(Convert.FromBase64String(providedPriv.Trim()), out _);
+                rec = new SigningKeyRecord
+                {
+                    Kid = _config["Signing:Kid"] is { Length: > 0 } k ? k : "k" + DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                    PublicKeySpki = Convert.ToBase64String(ec.ExportSubjectPublicKeyInfo()),
+                    PrivateKeyPkcs8 = providedPriv.Trim(),
+                    Active = true,
+                };
+            }
+            else
+            {
+                using var ec = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+                rec = new SigningKeyRecord
+                {
+                    Kid = "k" + DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
+                    PublicKeySpki = Convert.ToBase64String(ec.ExportSubjectPublicKeyInfo()),
+                    PrivateKeyPkcs8 = Convert.ToBase64String(ec.ExportPkcs8PrivateKey()),
+                    Active = true,
+                };
+            }
             db.SigningKeys.Add(rec);
             await db.SaveChangesAsync();
         }

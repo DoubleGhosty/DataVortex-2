@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using System.Threading.RateLimiting;
 using DataVortex.LicenseServer;
@@ -5,6 +6,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Run as a Windows Service when launched by the SCM (auto-start on boot, restart on crash); still runs as a
+// plain console app in dev. No-op on other platforms.
+builder.Host.UseWindowsService();
 
 builder.Services.AddDbContext<LicenseDbContext>(o =>
     o.UseNpgsql(builder.Configuration.GetConnectionString("Licenses")));
@@ -15,7 +20,8 @@ builder.Services.AddScoped<AnomalyService>();
 builder.Services.AddScoped<AdminService>();
 builder.Services.AddMemoryCache();
 
-// Per-IP rate limiting (guards brute force on keys and general API abuse). 120 req/min/IP.
+// Per-IP rate limiting: 120 req/min/IP globally (brute force on keys + general abuse), plus a much tighter window
+// on the admin login — the admin panel is internet-exposed, so this slows password/TOTP brute force to a crawl.
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -23,6 +29,10 @@ builder.Services.AddRateLimiter(options =>
         RateLimitPartition.GetFixedWindowLimiter(
             ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             _ => new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1) }));
+    options.AddPolicy("adminLogin", ctx =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            ctx.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions { PermitLimit = 8, Window = TimeSpan.FromMinutes(5) }));
 });
 
 var app = builder.Build();
@@ -39,6 +49,40 @@ using (var scope = app.Services.CreateScope())
 await app.Services.GetRequiredService<SigningService>().InitializeAsync();
 
 app.UseRateLimiter();
+
+// The admin panel (admin API /api/v1/admin/* + the static dashboard) is internet-exposed on purpose, so it can be
+// opened from a browser at https://<server>/ and used without RDP/SSH. It is gated by admin login + TOTP (2FA) and
+// the tight login rate limit above. OPTIONALLY restrict it to specific source IPs via Admin:AllowedIps (a list of
+// IPv4/IPv6 literals); empty ⇒ any IP (auth is the gate). The client API paths below are always public.
+// (No reverse proxy here → RemoteIpAddress is the real peer; if one is added later, enable ForwardedHeaders so the
+// allowlist sees the true client IP.)
+static bool IsPublicClientPath(PathString p) =>
+    p.StartsWithSegments("/api/v1/ping") || p.StartsWithSegments("/api/v1/keys") ||
+    p.StartsWithSegments("/api/v1/activate") || p.StartsWithSegments("/api/v1/verify") ||
+    p.StartsWithSegments("/api/v1/renew") || p.StartsWithSegments("/api/v1/deactivate") ||
+    p.StartsWithSegments("/api/v1/session");
+
+var adminAllowIps = (builder.Configuration.GetSection("Admin:AllowedIps").Get<string[]>() ?? Array.Empty<string>())
+    .Select(s => IPAddress.TryParse(s.Trim(), out var ip) ? ip : null)
+    .Where(ip => ip is not null).Select(ip => ip!).ToHashSet();
+
+if (adminAllowIps.Count > 0)
+{
+    app.Use(async (ctx, next) =>
+    {
+        if (!IsPublicClientPath(ctx.Request.Path))
+        {
+            var ip = ctx.Connection.RemoteIpAddress;
+            if (ip is not null && ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
+            if (ip is null || !adminAllowIps.Contains(ip))
+            {
+                ctx.Response.StatusCode = StatusCodes.Status404NotFound; // don't advertise the admin surface
+                return;
+            }
+        }
+        await next();
+    });
+}
 
 // Serve the admin dashboard (wwwroot/index.html).
 app.UseDefaultFiles();
@@ -107,7 +151,7 @@ app.MapPost("/api/v1/admin/login", async (LoginDto dto, AdminService svc) =>
 {
     var token = await svc.LoginAsync(dto.Email, dto.Password, dto.Totp);
     return token is null ? Results.Unauthorized() : (IResult)Results.Ok(new { token });
-});
+}).RequireRateLimiting("adminLogin");
 
 // ------------------------------------------------------------------ admin: read + revoke (Support+)
 app.MapGet("/api/v1/admin/licenses", async (string? query, LicenseService svc, HttpContext ctx) =>

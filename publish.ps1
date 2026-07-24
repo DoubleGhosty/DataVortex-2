@@ -14,7 +14,8 @@
 #>
 param(
   [string]$Output  = "dist",
-  [string]$Version = ""
+  [string]$Version = "",
+  [string]$HmacKey = ""
 )
 $ErrorActionPreference = "Stop"
 # Native (dotnet/obfuscar) exit codes are checked explicitly below; don't let PS 7.4+ auto-throw on
@@ -23,9 +24,13 @@ $PSNativeCommandUseErrorActionPreference = $false
 $proj = "src/DataVortex.App/DataVortex.App.csproj"
 $rid  = "win-x64"
 $verArgs = @(); if ($Version) { $verArgs = @("-p:Version=$Version") }
+# App HMAC key = build-time secret (never committed). Falls back to the generated one in _secrets/ if present.
+if (-not $HmacKey -and (Test-Path "_secrets/hmac-key.txt")) { $HmacKey = (Get-Content "_secrets/hmac-key.txt" -Raw).Trim() }
+$hmacArgs = @(); if ($HmacKey) { $hmacArgs = @("-p:DvHmacKey=$HmacKey") }
+if (-not $HmacKey) { Write-Host "   (no HMAC key -> request signing disabled in this build)" -ForegroundColor DarkYellow }
 
 Write-Host "== 1/3 build ==" -ForegroundColor Cyan
-dotnet build $proj -c Release -r $rid -p:SelfContained=true @verArgs -v q --nologo
+dotnet build $proj -c Release -r $rid -p:SelfContained=true @verArgs @hmacArgs -v q --nologo
 if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
 Write-Host "== 2/3 obfuscate (Obfuscar) ==" -ForegroundColor Cyan
