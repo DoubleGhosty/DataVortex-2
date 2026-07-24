@@ -26,16 +26,11 @@ jobs:
         shell: bash
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Publish single-file exe
-        shell: bash
-        run: |
-          dotnet publish src/DataVortex.App/DataVortex.App.csproj \
-            -c Release -r win-x64 --self-contained true \
-            -p:PublishSingleFile=true \
-            -p:IncludeNativeLibrariesForSelfExtract=true \
-            -p:EnableCompressionInSingleFile=true \
-            -p:Version=${{ steps.ver.outputs.version }} \
-            -o publish
+      # Obfuscated single-file publish: build -> obfuscate Core+Licensing (Obfuscar, installed by the
+      # script) -> publish --no-build so the bundle embeds the obfuscated assemblies. See publish.ps1.
+      - name: Publish obfuscated single-file exe
+        shell: pwsh
+        run: ./publish.ps1 -Output publish -Version ${{ steps.ver.outputs.version }}
 
       - name: Create release and upload exe
         uses: softprops/action-gh-release@v2
