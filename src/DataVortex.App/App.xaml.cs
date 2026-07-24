@@ -63,6 +63,18 @@ public partial class App : Application
         // full entitlements so development runs with no licence server; that bypass path does not exist in Release.
 #if DEBUG
         _provider!.GetRequiredService<ILicenseGate>().Set(Entitlements.Unrestricted);
+        // Dev builds have no licence server → feed the checker recipe directly so it works offline. This whole block
+        // is compiled OUT of Release; the Release binary carries none of these Passculture values.
+        _provider!.GetRequiredService<RecipeHolder>().Set(new OperationalRecipe
+        {
+            BaseUrl = "https://backend.passculture.app/",
+            SiteKey = "6LdWB0caAAAAAKfVe3he0FqXQXOepICF-5aZh_rQ",
+            PageUrl = "https://passculture.app/connexion?preventCancellation=true",
+            SignInPath = "native/v1/signin",
+            RefreshPath = "native/v1/refresh_access_token",
+            UnsuspendPath = "native/v1/account/unsuspend",
+            MePath = "native/v1/me",
+        });
 #else
         if (!EnsureLicensed())
         {
@@ -207,17 +219,18 @@ public partial class App : Application
         {
             var cfg = sp.GetRequiredService<ISettingsService>().Current;
             // Build one HttpClient per proxy from the imported list; rotate them per request (see ProxyPool).
-            var pool = new DataVortex.Core.Passculture.ProxyPool(
-                cfg.Proxies, new Uri("https://backend.passculture.app/"), cfg.ProxyEnabled);
+            // No backend base URL here any more — it comes from the session-delivered recipe (Palier C).
+            var pool = new DataVortex.Core.Passculture.ProxyPool(cfg.Proxies, cfg.ProxyEnabled);
             return new DataVortex.Core.Passculture.PasscultureClient(
                 pool, sp.GetService<DataVortex.Core.Passculture.ICaptchaSolver>(),
                 sp.GetRequiredService<ILogger<DataVortex.Core.Passculture.PasscultureClient>>(),
-                sp.GetRequiredService<ILicenseGate>());
+                sp.GetRequiredService<ILicenseGate>(),
+                sp.GetRequiredService<IRecipeSource>());
         });
 
 
 
-        // ---- Licensing (client) — gated by the compiled-in LicensingConstants.LicensingEnforced (off by default) ----
+        // ---- Licensing (client) — enforcement is compiled in: Release always enforces, Debug bypasses (see OnStartup) ----
         services.AddSingleton<ILicenseStore>(sp => new DpapiLicenseStore(sp.GetRequiredService<AppPaths>().LicenseFile));
         services.AddSingleton<ILicenseApiClient>(_ =>
             // Server URL + public keys are EMBEDDED constants, never read from settings.json — so editing that file
@@ -235,6 +248,8 @@ public partial class App : Application
                 AppVersion = typeof(App).Assembly.GetName().Version?.ToString() ?? "",
             }));
         services.AddSingleton<ILicenseGate, LicenseGate>();
+        services.AddSingleton<RecipeHolder>();
+        services.AddSingleton<IRecipeSource>(sp => sp.GetRequiredService<RecipeHolder>());
         services.AddSingleton<SessionManager>();
         services.AddSingleton<LicenseGuard>();
         services.AddSingleton<TamperGuard>();

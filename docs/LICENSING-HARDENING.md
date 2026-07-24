@@ -323,12 +323,51 @@ Je ré-attaque le binaire durci et je documente : est-ce que la voie « dépaque
 
 ## 10. Feuille de route / checklist
 
-- [ ] **Phase A** — Palier 1 (entitlements, call-sites, suppression `IsUsable`/`LicensingEnforced`, fix V2/V6, anti-tamper/anti-debug) · *offline-safe*
-- [ ] **Phase B** — Palier 3 (endpoints session, enforcement par siège, `SessionManager` client)
-- [ ] **Phase C** — Palier 2 (recette PasscultureClient → bundle chiffré clé-de-session, option déport de calcul)
-- [ ] **Phase D** — Durcissement (obfuscation, natif partiel, signature) + **ré-audit offensif**
-- [ ] Gestion des secrets de build (§8) + audit historique git
-- [ ] Plan de rotation (clés/recette/protocole) pour réponse rapide à un crack
+- [x] **Phase A** — Palier 1 (entitlements, call-sites gatés x9, suppression `IsUsable`/`LicensingEnforced`, fix V2-HMAC/V6, anti-debug) · *offline-safe* — **fait** (A.4 URL/pin restent, cf. §11)
+- [x] **Phase B** — Palier 3 (endpoints session, enforcement par siège, `SessionManager` client) — **fait + validé E2E**
+- [x] **Phase C** — Palier 2 (recette PasscultureClient → bundle chiffré clé-de-session) — **fait + validé E2E** ; *déport de calcul (C.3) : non fait, optionnel*
+- [~] **Phase D** — obfuscation Obfuscar (**config validée**, cf. `obfuscar.xml`) + **ré-audit offensif fait** (§11) ; natif partiel (D.2) + signature Authenticode (D.3, mécanisme prêt) restent
+- [x] Gestion des secrets de build (§8) + audit historique git — **audit fait, propre** (aucun secret réel commité) ; injection au build reste à câbler
+- [x] Plan de rotation (clés/recette/protocole) — **documenté §11**
+
+---
+
+## 11. État d'implémentation, ré-audit (D.4) et rotation
+
+> Session de développement **localhost** (serveur de test HTTP). Tout est **implémenté et validé**, sauf ce qui dépend d'un **serveur HTTPS déployé** ou d'un **certificat de signature**.
+
+### 11.1 Fait + validé
+- **Palier A** : modèle `Entitlements` dérivé des claims signés ; **9 call-sites gatés** (pipeline ×2, Passculture signin, backfill, Telegram scan+download, Files export ×3), effets non-uniformes ; `IsUsable` et le `const LicensingEnforced` **supprimés** (enforcement = `#if DEBUG` bypass / Release toujours actif) ; liaison `fph` (V6) ; **anti-debug** + **self-check Authenticode** (`WinVerifyTrust`, inerte tant que non signé). **A.4-HMAC** : mécanisme de signature client+serveur **validé** (non-signé → 401, signé → passe) ; la **clé** reste un secret de déploiement à **injecter au build** (§8), donc `AppHmacKey=""` dans le code committé.
+- **Palier B** : sessions serveur courtes liées HW (`SessionService` + `/session/start|refresh` + migration `AddSessions`), **siège** plafonné par `MaxActivations`, `SessionManager` client. Anomalies (`AnomalyService`) alimentées par les signaux de session (IP multiples, rejets de siège). **Validé E2E** (activation → session → pipeline).
+- **Palier C** : recette Passculture externalisée (`OperationalRecipe`), scellée **AES-256-GCM** clé-de-session (`RecipeCrypto`), livrée par session (`session_key` + `operational_bundle`, migration `AddSessionKey`), déchiffrée en RAM (`RecipeHolder`), consommée par `PasscultureClient` (URIs absolues, plus aucune constante). **Validé E2E** (check réel → VALIDE) et **recette absente du binaire** (`grep` = 0).
+- **§8** : audit git — aucun secret réel (clé privée, mot de passe DB, HMAC) jamais commité ; seuls des placeholders (`change-me-in-production`).
+- **D.1** : `obfuscar.xml` validé (API publique préservée, **chaînes chiffrées**, internes renommés) — cf. procédure dans le fichier.
+
+### 11.2 Ré-audit offensif (D.4) — le binaire Release durci
+Décompilation `ilspycmd` du Release + `grep` :
+
+| Marqueur | Avant | Après |
+|---|---|---|
+| `IsUsable` (cible du crack 2 octets) | 1 chokepoint | **0** |
+| `LicensingEnforced` (V10) | 1 const | **0** |
+| Recette (site-key / endpoints / backend) | en clair | **0** |
+| Porte de capacité | 1 booléen | **9 call-sites dispersés** |
+
+➡️ Le chemin d'attaque d'origine — *dépaquetage → `grep IsUsable` → patch 2 octets* — est **mort**.
+
+### 11.3 Plan de rotation (réponse à un crack)
+- **Recette (levier le plus fort)** : elle vient de la **config serveur** (`Recipe:*`) et est livrée par session. La changer (endpoints/site-key) + redémarrer → **toutes les nouvelles sessions** ont la nouvelle recette **immédiatement, sans update client**. Invalide instantanément un client qui aurait extrait/figé une ancienne recette.
+- **Clé de signature** : le serveur gère `kid` (clé active + suivante). Rotation : générer une nouvelle clé serveur → ajouter sa clé **publique** à `LicensingConstants.PublicKeys` (le client en accepte plusieurs) → publier un update client → basculer l'active côté serveur → révoquer l'ancienne après adoption.
+- **HMAC (`AppHmacKey`)** : symétrique. Rotation = accepter 2 clés (courante + précédente) le temps de l'overlap, publier le client avec la nouvelle, puis retirer l'ancienne. *(middleware mono-clé aujourd'hui — évolution à prévoir.)*
+- **Session/protocole** : durée de session (15 min) et seuils d'anomalie ajustables **côté serveur** sans update client.
+
+### 11.4 Reste — bloqué sur des ressources externes
+- **A.4 URL prod + pin SPKI** → serveur **HTTPS déployé** (+ certif TLS pour le pin).
+- **A.4 HMAC prod** → injecter la clé **au build** (secret CI), pas la valeur de test.
+- **D.3 signature Authenticode** → **certificat de signature de code** (le self-check est déjà prêt à mordre).
+- **D.2 compilation native partielle** → gros chantier (isoler crypto/loader en natif AOT via P/Invoke).
+- **D.1 fort** → obfuscateur **commercial** (control-flow, renommage public) + câblage dans le publish single-file.
+- **C.3** *(optionnel)* → déport d'un calcul par requête.
 
 ---
 

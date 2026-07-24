@@ -1,6 +1,8 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using DataVortex.Licensing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace DataVortex.LicenseServer;
 
@@ -16,12 +18,27 @@ public sealed class SessionService
 
     private readonly LicenseDbContext _db;
     private readonly SigningService _signing;
+    private readonly IConfiguration _cfg;
 
-    public SessionService(LicenseDbContext db, SigningService signing)
+    public SessionService(LicenseDbContext db, SigningService signing, IConfiguration cfg)
     {
         _db = db;
         _signing = signing;
+        _cfg = cfg;
     }
+
+    /// <summary>The operational recipe the checker needs, read from server config (<c>Recipe:*</c>). Delivered to
+    /// clients only inside a live session, sealed under the session key — never present in the client binary.</summary>
+    private OperationalRecipe Recipe() => new()
+    {
+        BaseUrl = _cfg["Recipe:BaseUrl"] ?? "",
+        SiteKey = _cfg["Recipe:SiteKey"] ?? "",
+        PageUrl = _cfg["Recipe:PageUrl"] ?? "",
+        SignInPath = _cfg["Recipe:SignInPath"] ?? "",
+        RefreshPath = _cfg["Recipe:RefreshPath"] ?? "",
+        UnsuspendPath = _cfg["Recipe:UnsuspendPath"] ?? "",
+        MePath = _cfg["Recipe:MePath"] ?? "",
+    };
 
     public async Task<SessionApiResponse> StartAsync(SessionStartDto dto, string? ip)
     {
@@ -67,11 +84,15 @@ public sealed class SessionService
         session.LastRefreshAt = now;
         session.ExpiresAt = now + SessionLifetime;
         session.Ip = ip;
+        if (string.IsNullOrEmpty(session.SessionKey))
+            session.SessionKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
         if (mine is null) _db.Sessions.Add(session);
         await _db.SaveChangesAsync();
 
+        var bundle = RecipeCrypto.Protect(Recipe(), Convert.FromBase64String(session.SessionKey));
         await LogAsync(lic.Id, "session_start", "ok", ip);
-        return new("Ok", session_token: session.Id.ToString(), expires_at: session.ExpiresAt);
+        return new("Ok", session_token: session.Id.ToString(), expires_at: session.ExpiresAt,
+            session_key: session.SessionKey, operational_bundle: bundle);
     }
 
     public async Task<SessionApiResponse> RefreshAsync(SessionRefreshDto dto, string? ip)
@@ -109,9 +130,14 @@ public sealed class SessionService
         session.LastRefreshAt = now;
         session.ExpiresAt = now + SessionLifetime;
         session.Ip = ip;
+        if (string.IsNullOrEmpty(session.SessionKey))
+            session.SessionKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
         await _db.SaveChangesAsync();
+
+        var bundle = RecipeCrypto.Protect(Recipe(), Convert.FromBase64String(session.SessionKey));
         await LogAsync(lic.Id, "session_refresh", "ok", ip);
-        return new("Ok", session_token: session.Id.ToString(), expires_at: session.ExpiresAt);
+        return new("Ok", session_token: session.Id.ToString(), expires_at: session.ExpiresAt,
+            session_key: session.SessionKey, operational_bundle: bundle);
     }
 
     // ------------------------------------------------------------------ helpers (mirror LicenseService)

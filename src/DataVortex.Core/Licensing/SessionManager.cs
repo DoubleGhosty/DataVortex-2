@@ -1,3 +1,4 @@
+using DataVortex.Licensing;
 using Microsoft.Extensions.Logging;
 
 namespace DataVortex.Core.Licensing;
@@ -15,6 +16,7 @@ public sealed class SessionManager : IDisposable
 
     private readonly ILicenseApiClient _api;
     private readonly ILicenseStore _store;
+    private readonly RecipeHolder _recipes;
     private readonly ILogger<SessionManager> _log;
     private readonly object _gate = new();
     private Timer? _timer;
@@ -27,11 +29,25 @@ public sealed class SessionManager : IDisposable
     /// the entitlement gate; keep handlers thread-safe (don't touch the UI directly).</summary>
     public event Action<bool>? OnlineChanged;
 
-    public SessionManager(ILicenseApiClient api, ILicenseStore store, ILogger<SessionManager> log)
+    public SessionManager(ILicenseApiClient api, ILicenseStore store, RecipeHolder recipes, ILogger<SessionManager> log)
     {
         _api = api;
         _store = store;
+        _recipes = recipes;
         _log = log;
+    }
+
+    /// <summary>Decrypts the session-delivered operational bundle into the in-memory recipe (or clears it if the
+    /// server sent none / it fails to open). Null ⇒ the checker fails closed even while the session is up.</summary>
+    private void ApplyRecipe(SessionResponse r)
+    {
+        OperationalRecipe? recipe = null;
+        if (!string.IsNullOrEmpty(r.SessionKey) && !string.IsNullOrEmpty(r.Bundle))
+        {
+            try { recipe = RecipeCrypto.Unprotect(r.Bundle, Convert.FromBase64String(r.SessionKey)); }
+            catch { recipe = null; }
+        }
+        _recipes.Set(recipe);
     }
 
     /// <summary>Opens the first session now (synchronously awaited by the caller at startup) and starts the refresh
@@ -48,6 +64,7 @@ public sealed class SessionManager : IDisposable
         lock (_gate) _running = false;
         _timer?.Dispose();
         _timer = null;
+        _recipes.Set(null);
         SetOnline(false);
         lock (_gate) _sessionToken = null;
     }
@@ -66,11 +83,13 @@ public sealed class SessionManager : IDisposable
             if (r.Success && !string.IsNullOrEmpty(r.SessionToken))
             {
                 lock (_gate) _sessionToken = r.SessionToken;
+                ApplyRecipe(r);
                 SetOnline(true);
             }
             else
             {
                 lock (_gate) _sessionToken = null;
+                _recipes.Set(null);
                 _log.LogDebug("Session start refused: {Status}", r.Status);
                 SetOnline(false);
             }
@@ -79,6 +98,7 @@ public sealed class SessionManager : IDisposable
         {
             // Server unreachable → offline. The online features gate off; the offline lease still governs the state.
             _log.LogDebug("Session start failed: {Error}", ex.Message);
+            _recipes.Set(null);
             SetOnline(false);
         }
     }
@@ -96,12 +116,14 @@ public sealed class SessionManager : IDisposable
             if (r.Success && !string.IsNullOrEmpty(r.SessionToken))
             {
                 lock (_gate) _sessionToken = r.SessionToken;
+                ApplyRecipe(r);
                 SetOnline(true);
             }
             else
             {
                 // Explicit server refusal (revoked/suspended/expired/seat) → drop, then try to re-establish once.
                 lock (_gate) _sessionToken = null;
+                _recipes.Set(null);
                 SetOnline(false);
                 await EstablishAsync(CancellationToken.None).ConfigureAwait(false);
             }
@@ -109,6 +131,7 @@ public sealed class SessionManager : IDisposable
         catch (Exception ex)
         {
             _log.LogDebug("Session refresh failed: {Error}", ex.Message);
+            _recipes.Set(null);
             SetOnline(false);
         }
     }

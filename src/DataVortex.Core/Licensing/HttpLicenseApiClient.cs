@@ -74,7 +74,7 @@ public sealed class HttpLicenseApiClient : ILicenseApiClient
     {
         if ((int)code == 429) return new(false, null, null, LicenseServerStatus.RateLimited, null);
 
-        string? sessionToken = null, message = null, statusStr = null;
+        string? sessionToken = null, message = null, statusStr = null, sessionKey = null, bundle = null;
         DateTimeOffset? expiresAt = null;
         try
         {
@@ -86,12 +86,14 @@ public sealed class HttpLicenseApiClient : ILicenseApiClient
                 if (r.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String) message = m.GetString();
                 if (r.TryGetProperty("status", out var s) && s.ValueKind == JsonValueKind.String) statusStr = s.GetString();
                 if (r.TryGetProperty("expires_at", out var e) && e.TryGetDateTimeOffset(out var exp)) expiresAt = exp;
+                if (r.TryGetProperty("session_key", out var sk) && sk.ValueKind == JsonValueKind.String) sessionKey = sk.GetString();
+                if (r.TryGetProperty("operational_bundle", out var ob) && ob.ValueKind == JsonValueKind.String) bundle = ob.GetString();
             }
         }
         catch { /* non-JSON → fall back to HTTP code */ }
 
         var status = MapStatus(statusStr, code, sessionToken);
-        return new(status == LicenseServerStatus.Ok, sessionToken, expiresAt, status, message);
+        return new(status == LicenseServerStatus.Ok, sessionToken, expiresAt, status, message, sessionKey, bundle);
     }
 
     private async Task<LicenseResponse> PostAsync(string endpoint, Dictionary<string, object?> body, CancellationToken ct)

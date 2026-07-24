@@ -268,7 +268,7 @@ public sealed class LicenseModuleTests : IDisposable
     public async Task Session_start_success_goesOnline_thenStopGoesOffline()
     {
         var store = new FakeStore { Data = new("tok", RealFp(), Base) };
-        var sm = new SessionManager(new FakeApi(), store, NullLogger<SessionManager>.Instance);
+        var sm = new SessionManager(new FakeApi(), store, new RecipeHolder(), NullLogger<SessionManager>.Instance);
         await sm.StartAsync();
         Assert.True(sm.IsOnline);
         sm.Stop();
@@ -280,7 +280,7 @@ public sealed class LicenseModuleTests : IDisposable
     {
         var store = new FakeStore { Data = new("tok", RealFp(), Base) };
         var api = new FakeApi { StartSessionResult = new(false, null, null, LicenseServerStatus.Revoked, null) };
-        var sm = new SessionManager(api, store, NullLogger<SessionManager>.Instance);
+        var sm = new SessionManager(api, store, new RecipeHolder(), NullLogger<SessionManager>.Instance);
         await sm.StartAsync();
         Assert.False(sm.IsOnline);
         sm.Stop();
@@ -290,9 +290,68 @@ public sealed class LicenseModuleTests : IDisposable
     public async Task Session_start_serverUnreachable_staysOffline_noThrow()
     {
         var store = new FakeStore { Data = new("tok", RealFp(), Base) };
-        var sm = new SessionManager(new FakeApi { ThrowOnSession = true }, store, NullLogger<SessionManager>.Instance);
+        var sm = new SessionManager(new FakeApi { ThrowOnSession = true }, store, new RecipeHolder(), NullLogger<SessionManager>.Instance);
         await sm.StartAsync();  // must not throw
         Assert.False(sm.IsOnline);
         sm.Stop();
+    }
+
+    // ---------------------------------------------------------------- recipe crypto (Palier C foundation)
+
+    private static OperationalRecipe SampleRecipe() => new()
+    {
+        BaseUrl = "https://backend.example/", SiteKey = "6Lxxxx", PageUrl = "https://example/login",
+        SignInPath = "native/v1/signin", RefreshPath = "native/v1/refresh", UnsuspendPath = "native/v1/unsuspend", MePath = "native/v1/me",
+    };
+
+    [Fact]
+    public void Recipe_roundtrips_withSessionKey()
+    {
+        var key = RandomNumberGenerator.GetBytes(32);
+        var blob = RecipeCrypto.Protect(SampleRecipe(), key);
+        var back = RecipeCrypto.Unprotect(blob, key);
+        Assert.NotNull(back);
+        Assert.Equal("6Lxxxx", back!.SiteKey);
+        Assert.Equal("native/v1/signin", back.SignInPath);
+        Assert.True(back.IsComplete);
+    }
+
+    [Fact]
+    public void Recipe_wrongSessionKey_failsClosed()
+    {
+        var blob = RecipeCrypto.Protect(SampleRecipe(), RandomNumberGenerator.GetBytes(32));
+        Assert.Null(RecipeCrypto.Unprotect(blob, RandomNumberGenerator.GetBytes(32))); // no key ⇒ no recipe
+    }
+
+    [Fact]
+    public void Recipe_tamperedBlob_failsClosed()
+    {
+        var key = RandomNumberGenerator.GetBytes(32);
+        var raw = Convert.FromBase64String(RecipeCrypto.Protect(SampleRecipe(), key));
+        raw[^1] ^= 0xFF; // flip a tag bit
+        Assert.Null(RecipeCrypto.Unprotect(Convert.ToBase64String(raw), key));
+    }
+
+    [Fact]
+    public async Task Session_start_deliversAndDecryptsRecipe_clearedOnStop()
+    {
+        var key = RandomNumberGenerator.GetBytes(32);
+        var bundle = RecipeCrypto.Protect(SampleRecipe(), key);
+        var holder = new RecipeHolder();
+        var api = new FakeApi
+        {
+            StartSessionResult = new(true, "sess-1", DateTimeOffset.UtcNow.AddMinutes(15), LicenseServerStatus.Ok, null,
+                SessionKey: Convert.ToBase64String(key), Bundle: bundle)
+        };
+        var store = new FakeStore { Data = new("tok", RealFp(), Base) };
+        var sm = new SessionManager(api, store, holder, NullLogger<SessionManager>.Instance);
+
+        await sm.StartAsync();
+        Assert.True(sm.IsOnline);
+        Assert.NotNull(holder.Current);            // recipe delivered + decrypted into memory
+        Assert.Equal("6Lxxxx", holder.Current!.SiteKey);
+
+        sm.Stop();
+        Assert.Null(holder.Current);               // cleared on stop ⇒ checker fails closed
     }
 }

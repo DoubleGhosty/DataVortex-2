@@ -42,15 +42,25 @@ public sealed class PasscultureClient
     private readonly ICaptchaSolver? _captcha;
     private readonly ILogger<PasscultureClient> _log;
     private readonly ILicenseGate? _gate;
+    private readonly IRecipeSource? _recipe;
 
     public PasscultureClient(ProxyPool pool, ICaptchaSolver? captcha = null, ILogger<PasscultureClient>? log = null,
-        ILicenseGate? gate = null)
+        ILicenseGate? gate = null, IRecipeSource? recipe = null)
     {
         _pool = pool;
         _captcha = captcha;
         _log = log ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<PasscultureClient>.Instance;
         _gate = gate;
+        _recipe = recipe;
     }
+
+    /// <summary>The live operational recipe (Palier C): the backend URL, reCAPTCHA site-key, page URL and endpoint
+    /// paths — delivered by the server per session, held in memory only. Null when there is no session, which fails
+    /// every checker call closed (there is nothing hard-coded to fall back on).</summary>
+    private OperationalRecipe? Recipe => _recipe?.Current;
+
+    /// <summary>Absolute request uri = recipe base URL + relative endpoint path (no backend URL is embedded).</summary>
+    private static Uri Endpoint(OperationalRecipe r, string path) => new(new Uri(r.BaseUrl), path);
 
     /// <summary>How long a proxy is benched after the backend rate-limits it (HTTP 429).</summary>
     private static readonly TimeSpan RateLimitBan = TimeSpan.FromMinutes(5);
@@ -131,8 +141,16 @@ public sealed class PasscultureClient
     public async Task<SignInResult> SignInAsync(string identifier, string password, string? captchaToken, CancellationToken ct = default)
     {
         // Capability gate at the jewel: no CheckPassculture entitlement ⇒ no sign-in ⇒ the checker produces nothing.
-        // (Palier C will go further and make this method's recipe undecryptable without a live server session.)
         _gate?.Require(Capability.CheckPassculture);
+
+        // Palier C: the recipe (site-key, page URL, endpoints, base URL) comes from the live session ONLY. No
+        // session ⇒ no recipe ⇒ the checker cannot even build the request — nothing hard-coded to patch.
+        var recipe = Recipe;
+        if (recipe is null || !recipe.IsComplete)
+        {
+            _log.LogWarning("Sign-in blocked: no operational session (recipe unavailable)");
+            return new SignInResult { Success = false, Raw = "no operational session" };
+        }
 
         var req = new Dictionary<string, object?>
         {
@@ -150,9 +168,7 @@ public sealed class PasscultureClient
                 try
                 {
                     _log.LogInformation("Attempting to solve captcha via 2captcha");
-                    var solved = await _captcha.SolveRecaptchaAsync(
-                        siteKey: "6LdWB0caAAAAAKfVe3he0FqXQXOepICF-5aZh_rQ",
-                        pageUrl: "https://passculture.app/connexion?preventCancellation=true");
+                    var solved = await _captcha.SolveRecaptchaAsync(siteKey: recipe.SiteKey, pageUrl: recipe.PageUrl);
                     _log.LogInformation("2captcha returned token: {TokenPresent}", !string.IsNullOrWhiteSpace(solved));
                     if (!string.IsNullOrWhiteSpace(solved))
                     {
@@ -165,7 +181,7 @@ public sealed class PasscultureClient
             _log.LogInformation("→ Passculture POST signin pour {Email}", identifier);
             // Rebuilt each attempt (the content stream is single-use); a 502 on one proxy retries on the next.
             using var resp = await SendThroughPoolAsync(
-                () => new HttpRequestMessage(HttpMethod.Post, "native/v1/signin")
+                () => new HttpRequestMessage(HttpMethod.Post, Endpoint(recipe, recipe.SignInPath))
                       { Content = new StringContent(json, Encoding.UTF8, "application/json") },
                 "signin", ct).ConfigureAwait(false);
             var s = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
@@ -206,12 +222,11 @@ public sealed class PasscultureClient
     public async Task<string?> SolveCaptchaAsync(CancellationToken ct = default)
     {
         if (_captcha is null) return null;
+        var recipe = Recipe;
+        if (recipe is null || !recipe.IsComplete) return null;
         try
         {
-            return await _captcha.SolveRecaptchaAsync(
-                siteKey: "6LdWB0caAAAAAKfVe3he0FqXQXOepICF-5aZh_rQ",
-                pageUrl: "https://passculture.app/connexion?preventCancellation=true",
-                ct: ct).ConfigureAwait(false);
+            return await _captcha.SolveRecaptchaAsync(siteKey: recipe.SiteKey, pageUrl: recipe.PageUrl, ct: ct).ConfigureAwait(false);
         }
         catch { return null; }
     }
@@ -221,10 +236,12 @@ public sealed class PasscultureClient
     /// (e.g. the refresh token has expired, ~31 days).</summary>
     public async Task<RefreshResult> RefreshAccessTokenAsync(string refreshToken, CancellationToken ct = default)
     {
+        var recipe = Recipe;
+        if (recipe is null || !recipe.IsComplete) return new RefreshResult { StatusCode = 0 };
         try
         {
             using var resp = await SendThroughPoolAsync(
-                () => { var r = new HttpRequestMessage(HttpMethod.Post, "native/v1/refresh_access_token"); ApplyAuth(r, refreshToken); return r; },
+                () => { var r = new HttpRequestMessage(HttpMethod.Post, Endpoint(recipe, recipe.RefreshPath)); ApplyAuth(r, refreshToken); return r; },
                 "refresh", ct).ConfigureAwait(false);
             var s = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             string? token = null, newRefresh = null;
@@ -252,10 +269,12 @@ public sealed class PasscultureClient
     /// ACCOUNT_UNSUSPENSION_DELAY) and answers 403 otherwise. Returns 0 on a network/proxy failure.</summary>
     public async Task<int> UnsuspendAsync(string accessToken, CancellationToken ct = default)
     {
+        var recipe = Recipe;
+        if (recipe is null || !recipe.IsComplete) return 0;
         try
         {
             using var resp = await SendThroughPoolAsync(
-                () => { var r = new HttpRequestMessage(HttpMethod.Post, "native/v1/account/unsuspend"); ApplyAuth(r, accessToken); return r; },
+                () => { var r = new HttpRequestMessage(HttpMethod.Post, Endpoint(recipe, recipe.UnsuspendPath)); ApplyAuth(r, accessToken); return r; },
                 "unsuspend", ct).ConfigureAwait(false);
             var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             _log.LogInformation("Unsuspend → HTTP {Code}: {Body}", (int)resp.StatusCode, body);
@@ -270,10 +289,12 @@ public sealed class PasscultureClient
 
     public async Task<MeResult> GetMeAsync(string accessToken, CancellationToken ct = default)
     {
+        var recipe = Recipe;
+        if (recipe is null || !recipe.IsComplete) return new MeResult { Success = false };
         try
         {
             using var resp = await SendThroughPoolAsync(
-                () => { var r = new HttpRequestMessage(HttpMethod.Get, "native/v1/me"); ApplyAuth(r, accessToken); return r; },
+                () => { var r = new HttpRequestMessage(HttpMethod.Get, Endpoint(recipe, recipe.MePath)); ApplyAuth(r, accessToken); return r; },
                 "me", ct).ConfigureAwait(false);
             var s = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             var me = ParseMe(s, (int)resp.StatusCode, resp.IsSuccessStatusCode);

@@ -159,7 +159,7 @@ public sealed class AccountRegistryTests : IDisposable
     {
         var (paths, storage) = New();
         var reg = new AccountTestRegistry(paths, storage, NullLogger<AccountTestRegistry>.Instance);
-        var client = new PasscultureClient(new ProxyPool(null, new Uri("https://example.test/"), enabled: false));
+        var client = new PasscultureClient(new ProxyPool(null, enabled: false));
 
         var cred = new CredentialEntry(null, username, "Cocotier973@", 0, "");
         var result = await AccountTester.TestOnceAsync(client, reg, cred);

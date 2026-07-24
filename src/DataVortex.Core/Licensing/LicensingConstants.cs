@@ -24,8 +24,11 @@ public static class LicensingConstants
     public const string DefaultServerUrl = "http://localhost:5000"; // LOCAL TEST — restore the prod URL before shipping
 
     /// <summary>Shared app-authentication key (HMAC), added to each request as X-Signature/X-Timestamp/X-Nonce and
-    /// matched by the server's <c>Security:AppHmacKey</c>. EMPTY disables request signing (dev). Embed a real key
-    /// for production — a defence-in-depth layer (bars requests forged outside the app), not a root secret.</summary>
+    /// matched by the server's <c>Security:AppHmacKey</c>. EMPTY disables request signing. The mechanism (client
+    /// <c>SignRequest</c> + server <c>RequestAuth</c>) is implemented and validated (unsigned ⇒ 401, correctly
+    /// signed ⇒ accepted). To ENABLE it, INJECT a real 32-byte key here at BUILD time (CI secret) and set the
+    /// server's <c>Security:AppHmacKey</c> to the same value — never commit the key in clear (see §8). Defence in
+    /// depth (bars requests forged outside the app + replays), not a root secret.</summary>
     public const string AppHmacKey = "";
 
     /// <summary>SPKI pin of the server's TLS certificate (base64 SHA-256 of its SubjectPublicKeyInfo). When set,

@@ -19,8 +19,10 @@ public sealed class ProxyPool
     /// <summary>Number of proxied clients (0 when running direct, i.e. no usable proxy).</summary>
     public int ProxyCount { get; }
 
-    public ProxyPool(IEnumerable<string>? proxyLines, Uri baseAddress, bool enabled)
+    public ProxyPool(IEnumerable<string>? proxyLines, bool enabled)
     {
+        // The pool only picks WHICH proxy to route through — the target URL is passed as an ABSOLUTE uri per request
+        // (built from the session-delivered recipe, Palier C), so no backend base address is baked in here.
         var clients = new List<HttpClient>();
         if (enabled && proxyLines is not null)
         {
@@ -34,13 +36,13 @@ public sealed class ProxyPool
                     Proxy = new WebProxy(proxyUri) { Credentials = cred },
                     UseProxy = true
                 };
-                clients.Add(new HttpClient(handler) { BaseAddress = baseAddress });
+                clients.Add(new HttpClient(handler));
             }
         }
 
         ProxyCount = clients.Count;
         if (clients.Count == 0)
-            clients.Add(new HttpClient { BaseAddress = baseAddress }); // direct fallback (no/disabled proxies)
+            clients.Add(new HttpClient()); // direct fallback (no/disabled proxies)
         _clients = clients.ToArray();
         _bannedUntil = new long[_clients.Length];
     }

@@ -99,8 +99,7 @@ public sealed class AppSettings
     public int CleanupResidueMinutes { get; set; } = 60;
 
     // ---- Licensing ----
-    // Nothing here on purpose. Whether the build enforces licensing is a COMPILED-IN constant
-    // (LicensingConstants.LicensingEnforced), not a user-editable setting — see that file. The server URL and
-    // verification keys are embedded constants too, so settings.json can neither disable licensing nor redirect
-    // the client at a rogue server.
+    // Nothing here on purpose. Whether the build enforces licensing is COMPILED IN (Release enforces, Debug
+    // bypasses — see App.OnStartup), not a user-editable setting. The server URL and verification keys are embedded
+    // constants too, so settings.json can neither disable licensing nor redirect the client at a rogue server.
 }

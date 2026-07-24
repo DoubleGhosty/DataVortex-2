@@ -1,7 +1,9 @@
 using DataVortex.Core.Abstractions;
 using DataVortex.Core.Configuration;
+using DataVortex.Core.Licensing;
 using DataVortex.Core.Models;
 using DataVortex.Core.Pipeline;
+using DataVortex.Licensing;
 using Microsoft.Extensions.Logging;
 using TL;
 using WTelegram;
@@ -19,6 +21,7 @@ public sealed class TelegramService : ITelegramService, IDisposable
     private readonly AppPaths _paths;
     private readonly IDownloadDeduplicator _dedup;
     private readonly ISettingsService _settings;
+    private readonly ILicenseGate _gate;
     private readonly ILogger<TelegramService> _log;
 
     private Client? _client;
@@ -47,11 +50,13 @@ public sealed class TelegramService : ITelegramService, IDisposable
     public event Action<string>? VerificationRequested;
     public event Action<DownloadJob>? FileDetected;
 
-    public TelegramService(AppPaths paths, IDownloadDeduplicator dedup, ISettingsService settings, ILogger<TelegramService> log)
+    public TelegramService(AppPaths paths, IDownloadDeduplicator dedup, ISettingsService settings,
+        ILicenseGate gate, ILogger<TelegramService> log)
     {
         _paths = paths;
         _dedup = dedup;
         _settings = settings;
+        _gate = gate;
         _log = log;
     }
 
@@ -225,6 +230,7 @@ public sealed class TelegramService : ITelegramService, IDisposable
 
     public async Task DownloadAsync(DownloadJob job, Stream destination, IProgress<long>? progress, CancellationToken ct = default)
     {
+        _gate.Require(Capability.ScanTelegram); // dispersed gate on the actual pull (throws → the pipeline marks it failed)
         if (_client is null) throw new InvalidOperationException("Telegram client is not connected.");
         try
         {
@@ -345,6 +351,9 @@ public sealed class TelegramService : ITelegramService, IDisposable
 
     public async Task<HistoryPage> ScanHistoryPageAsync(long channelId, int offsetId, int pageSize, CancellationToken ct = default)
     {
+        // Capability gate (dispersed, silent effect): no ScanTelegram ⇒ report an empty page so the caller quietly
+        // stops digging, rather than throwing at the exact call the way DownloadAsync does.
+        if (!_gate.Allows(Capability.ScanTelegram)) return new HistoryPage(0, 0, offsetId, false, 0);
         if (_client is null || _manager is null) return new HistoryPage(0, 0, offsetId, true, 0);
         if (!_manager.Chats.TryGetValue(channelId, out var chat))
             return new HistoryPage(0, 0, offsetId, false, 0); // not resolved yet — retry later

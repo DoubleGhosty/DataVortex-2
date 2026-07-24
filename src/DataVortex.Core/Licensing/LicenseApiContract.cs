@@ -27,8 +27,11 @@ public enum LicenseServerStatus
 public sealed record LicenseResponse(bool Success, string? Token, LicenseServerStatus Status, string? Message);
 
 /// <summary>Server response to a session start/refresh (Palier B): the opaque session token and its short expiry
-/// when granted, else a status (Revoked/Suspended/Expired/HardwareMismatch/ActivationLimit/Offline).</summary>
-public sealed record SessionResponse(bool Success, string? SessionToken, DateTimeOffset? ExpiresAt, LicenseServerStatus Status, string? Message);
+/// when granted, else a status (Revoked/Suspended/Expired/HardwareMismatch/ActivationLimit/Offline). Palier C also
+/// carries the per-session <see cref="SessionKey"/> and the encrypted operational <see cref="Bundle"/> (the
+/// checker recipe) — both held in memory only and useless without each other.</summary>
+public sealed record SessionResponse(bool Success, string? SessionToken, DateTimeOffset? ExpiresAt, LicenseServerStatus Status, string? Message,
+    string? SessionKey = null, string? Bundle = null);
 
 /// <summary>Contract the client uses to talk to the licence server. Kept abstract so the licence manager (and
 /// its tests) never depend on transport; the HTTPS implementation (TLS pinning, request HMAC, nonce/timestamp,

@@ -67,6 +67,9 @@ public class Session
     public License? License { get; set; }
     /// <summary>Fingerprint hash the session is bound to — a session can't be moved to another machine.</summary>
     public string FingerprintHash { get; set; } = "";
+    /// <summary>Per-session random key (base64) the operational bundle is sealed under (Palier C). It travels to the
+    /// client once per session and is held only in the client's memory.</summary>
+    public string SessionKey { get; set; } = "";
     public bool Active { get; set; } = true;
     public DateTimeOffset StartedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset LastRefreshAt { get; set; } = DateTimeOffset.UtcNow;
@@ -145,7 +148,9 @@ public sealed record SessionApiResponse(
     [property: JsonPropertyName("status")] string status,
     [property: JsonPropertyName("session_token")] string? session_token = null,
     [property: JsonPropertyName("expires_at")] DateTimeOffset? expires_at = null,
-    [property: JsonPropertyName("message")] string? message = null);
+    [property: JsonPropertyName("message")] string? message = null,
+    [property: JsonPropertyName("session_key")] string? session_key = null,
+    [property: JsonPropertyName("operational_bundle")] string? operational_bundle = null);
 
 public sealed record GenerateLicenseDto(
     string Email, string? Company, string Type, int MaxActivations,

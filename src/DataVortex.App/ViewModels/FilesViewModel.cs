@@ -4,7 +4,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DataVortex.App.Services;
 using DataVortex.Core.Abstractions;
+using DataVortex.Core.Licensing;
 using DataVortex.Core.Models;
+using DataVortex.Licensing;
 
 namespace DataVortex.App.ViewModels;
 
@@ -15,6 +17,7 @@ public sealed partial class FilesViewModel : ObservableObject
     private readonly IStorageService _storage;
     private readonly IDialogService _dialogs;
     private readonly IUiDispatcher _ui;
+    private readonly ILicenseGate _gate;
 
     public ObservableCollection<ExtractedFile> Files { get; } = new();
 
@@ -22,11 +25,13 @@ public sealed partial class FilesViewModel : ObservableObject
     [ObservableProperty] private ExtractedFile? selectedFile;
     [ObservableProperty] private int fileCount;
 
-    public FilesViewModel(IStorageService storage, IPipelineCoordinator coordinator, IDialogService dialogs, IUiDispatcher ui)
+    public FilesViewModel(IStorageService storage, IPipelineCoordinator coordinator, IDialogService dialogs,
+        IUiDispatcher ui, ILicenseGate gate)
     {
         _storage = storage;
         _dialogs = dialogs;
         _ui = ui;
+        _gate = gate;
         coordinator.FileArchived += OnArchived;
         Reload();
     }
@@ -70,7 +75,9 @@ public sealed partial class FilesViewModel : ObservableObject
     }
 
     [RelayCommand] private void Refresh() => Reload();
-    [RelayCommand] private void OpenExtractedFolder() => _dialogs.OpenFolder(_storage.Paths.Extracted);
-    [RelayCommand] private void OpenFile(ExtractedFile? file) { if (file is not null) _dialogs.OpenFile(file.FullPath); }
-    [RelayCommand] private void OpenContainingFolder(ExtractedFile? file) { if (file is not null) _dialogs.OpenFolder(file.FullPath); }
+
+    // Export capability gate (dispersed, silent): accessing the extracted results is a licensed capability too.
+    [RelayCommand] private void OpenExtractedFolder() { if (_gate.Allows(Capability.Export)) _dialogs.OpenFolder(_storage.Paths.Extracted); }
+    [RelayCommand] private void OpenFile(ExtractedFile? file) { if (file is not null && _gate.Allows(Capability.Export)) _dialogs.OpenFile(file.FullPath); }
+    [RelayCommand] private void OpenContainingFolder(ExtractedFile? file) { if (file is not null && _gate.Allows(Capability.Export)) _dialogs.OpenFolder(file.FullPath); }
 }

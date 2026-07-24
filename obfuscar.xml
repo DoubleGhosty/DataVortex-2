@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Palier D.1 — obfuscation of the licence/checker-sensitive assemblies ONLY.
+  The WPF App assembly (DataVortex.dll) is deliberately NOT obfuscated: XAML binds types and
+  properties by name, so renaming them would break the UI. KeepPublicApi=true preserves the
+  cross-assembly public surface (App / server / tests keep binding); free Obfuscar then renames
+  internals and ENCRYPTS string literals.
+
+  Procedure (run AFTER the normal build, BEFORE the single-file publish):
+    1. dotnet build src/DataVortex.App -c Release -r win-x64
+    2. obfuscar.console obfuscar.xml   (with InPath set to the build's win-x64 output dir)
+    3. copy obfuscated DataVortex.Core.dll + DataVortex.Licensing.dll back over the build output
+    4. dotnet publish ... -p:PublishSingleFile=true   (bundles the obfuscated DLLs)
+    5. LAUNCH the published exe and smoke-test the app before shipping.
+
+  Validated: public API preserved, string literals encrypted (checker/licence messages no longer
+  appear in the decompiled DLL), internals renamed.
+
+  NOTE: free Obfuscar = string encryption + internal renaming. STRONG obfuscation (control-flow
+  flattening, public-symbol renaming, anti-ILDASM) requires a COMMERCIAL tool (.NET Reactor,
+  Eazfuscator.NET, Babel) — a purchase decision, like the Authenticode signing certificate (D.3).
+-->
+<Obfuscator>
+  <Var name="InPath" value="." />
+  <Var name="OutPath" value="./obf" />
+  <Var name="KeepPublicApi" value="true" />
+  <Var name="HidePrivateApi" value="true" />
+  <Var name="HideStrings" value="true" />
+  <Var name="Optimize" value="true" />
+  <Module file="$(InPath)/DataVortex.Licensing.dll" />
+  <Module file="$(InPath)/DataVortex.Core.dll" />
+</Obfuscator>
