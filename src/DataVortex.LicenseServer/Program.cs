@@ -11,8 +11,12 @@ var builder = WebApplication.CreateBuilder(args);
 // plain console app in dev. No-op on other platforms.
 builder.Host.UseWindowsService();
 
-builder.Services.AddDbContext<LicenseDbContext>(o =>
-    o.UseNpgsql(builder.Configuration.GetConnectionString("Licenses")));
+// Embedded SQLite — no external database to install or provision. The .db file is created next to the exe on
+// first run. Override with a ConnectionStrings:Licenses value only if you want a custom path.
+var dbConn = builder.Configuration.GetConnectionString("Licenses");
+if (string.IsNullOrWhiteSpace(dbConn))
+    dbConn = $"Data Source={Path.Combine(AppContext.BaseDirectory, "datavortex_licenses.db")}";
+builder.Services.AddDbContext<LicenseDbContext>(o => o.UseSqlite(dbConn));
 builder.Services.AddSingleton<SigningService>();
 builder.Services.AddScoped<LicenseService>();
 builder.Services.AddScoped<SessionService>();

@@ -26,20 +26,28 @@ public sealed class AdminService
     public async Task SeedAsync(string? email, string? password)
     {
         if (await _db.Admins.AnyAsync()) return;
-        if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password)) return;
+        email = string.IsNullOrWhiteSpace(email) ? "admin@datavortex.app" : email.Trim();
+
+        // Turnkey: with no password configured, generate a strong one and show it ONCE (like the TOTP secret) — so
+        // the server stands up a secure admin with zero pre-configuration.
+        var generated = string.IsNullOrWhiteSpace(password);
+        if (generated) password = Convert.ToBase64String(RandomNumberGenerator.GetBytes(18));
 
         var secret = AdminAuth.GenerateTotpSecret();
         _db.Admins.Add(new Admin
         {
             Email = email,
-            PasswordHash = AdminAuth.HashPassword(password),
+            PasswordHash = AdminAuth.HashPassword(password!),
             TotpSecret = secret,
             Role = AdminRole.SuperAdmin,
         });
         await _db.SaveChangesAsync();
 
-        _log.LogWarning("SuperAdmin créé ({Email}). Secret TOTP à enrôler dans une app d'authentification " +
-                        "(affiché une seule fois) : {Secret}", email, secret);
+        if (generated)
+            _log.LogWarning("SuperAdmin créé ({Email}). Mot de passe généré (affiché une seule fois) : {Password}",
+                email, password);
+        _log.LogWarning("Secret TOTP admin à enrôler dans une app d'authentification (affiché une seule fois) : {Secret}",
+            secret);
     }
 
     /// <summary>Verifies password + TOTP and, on success, returns a fresh session token bound to the admin's role.</summary>

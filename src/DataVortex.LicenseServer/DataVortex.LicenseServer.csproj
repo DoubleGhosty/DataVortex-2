@@ -8,7 +8,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
-    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.10" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.10" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.10">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -18,6 +18,11 @@
   <ItemGroup>
     <!-- Same signing/token/fingerprint primitives the client uses — one canonical implementation. -->
     <ProjectReference Include="..\DataVortex.Licensing\DataVortex.Licensing.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Never ship the local dev config (may hold a dev DB password) in the published server bundle. -->
+    <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
   </ItemGroup>
 
 </Project>

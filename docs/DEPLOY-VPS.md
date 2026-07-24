@@ -1,8 +1,9 @@
-# Déploiement — serveur de licence sur le VPS Windows + build client
+# Déploiement — serveur de licence (VPS Windows) + build client
 
 Cible : VPS **Windows Server** `217.128.139.122`, **IP nue** (TLS auto-signé + épinglage côté client).
+Le serveur est **turnkey** : un exe qu'on lance. **Aucune base de données à installer** (SQLite embarqué).
 
-## Architecture (rappel)
+## Architecture
 
 ```
  Clients (DataVortex.exe)  ──HTTPS 443──►  VPS 217.128.139.122
@@ -11,129 +12,90 @@ Cible : VPS **Windows Server** `217.128.139.122`, **IP nue** (TLS auto-signé + 
  Ton PC ──navigateur──► https://217.128.139.122/ → connexion → panel
 ```
 
-- **Public** : le port 443 sert l'API client **ET** le panel admin (firewall : 443 seulement).
-- **Admin** : panel web accessible depuis n'importe quel navigateur à `https://217.128.139.122/`, protégé par **login + TOTP (2FA)** + rate-limit strict sur le login (8 essais / 5 min / IP). Option : le restreindre à ton/tes IP via `Admin:AllowedIps`.
-- **TLS** : cert **auto-signé** (SAN = `217.128.139.122` + `localhost`), le client l'accepte par **épinglage SPKI** (seul le détenteur de la clé privée peut compléter le handshake → pas de MITM).
-- **Clés** : la paire de signature ECDSA P‑256 est **déjà générée**. La **publique** est câblée dans le client (`LicensingConstants`), la **privée** est dans `_secrets/` (va sur le VPS uniquement).
+- **Public** : le port 443 sert l'API client **et** le panel admin (firewall : 443 seulement).
+- **Admin** : panel web, depuis n'importe quel navigateur, protégé par **login + TOTP** + rate-limit (8/5 min/IP). Option `Admin:AllowedIps` pour restreindre à ton IP.
+- **TLS** : cert **auto-signé** (SAN `217.128.139.122` + `localhost`), accepté par le client via **épinglage SPKI**.
+- **Base** : **SQLite** — le fichier `datavortex_licenses.db` est créé à côté de l'exe au 1er lancement. Rien à provisionner.
+- **Clés** : paire de signature ECDSA P-256 déjà générée ; la publique est câblée dans le client, la privée est dans le bundle serveur (jamais dans le repo).
 
-## Ce qui est déjà pré‑câblé (côté repo, committé)
+## Secrets (`_secrets/`, gitignoré — à sauvegarder en lieu sûr)
 
-`src/DataVortex.Core/Licensing/LicensingConstants.cs` :
-- `DefaultServerUrl = https://217.128.139.122`
-- `PublicKeys` = clé publique de signature de prod
-- `ServerCertSpkiPin` = pin du cert TLS
-- `AppHmacKey` = **injectée au build** (jamais dans le repo)
-
-## Secrets (dossier `_secrets/`, gitignoré — à sauvegarder en lieu sûr)
-
-| Fichier | Destination |
+| Fichier | Rôle |
 |---|---|
-| `appsettings.Production.json` | VPS `C:\DataVortex\` (édite les 2 mots de passe) |
-| `server-tls.pfx` | VPS `C:\DataVortex\` |
-| `hmac-key.txt` | build client (auto) + secret GitHub `DV_HMAC_KEY` |
+| `appsettings.Production.json` | config prod remplie (clé privée de signature, HMAC, mot de passe du cert) — **copiée automatiquement dans le bundle** par `publish-server.ps1` |
+| `server-tls.pfx` | cert TLS — **copié automatiquement dans le bundle** |
+| `hmac-key.txt` | clé HMAC (build client auto + secret GitHub `DV_HMAC_KEY`) |
 | `signing-private-pkcs8.b64.txt` | déjà injectée dans `appsettings.Production.json` |
-| `signing-public-spki.b64.txt`, `tls-spki-pin.b64.txt` | déjà câblés dans le client |
 
-> ⚠️ **`signing-private-pkcs8.b64.txt` = joyau.** Le perdre = devoir re‑générer une paire et re‑publier tous les clients. Sauvegarde `_secrets/` (hors repo).
+> ⚠️ **`signing-private-pkcs8.b64.txt` = joyau.** Le perdre = re-générer une paire et re-publier tous les clients. Sauvegarde `_secrets/` **hors repo**.
 
 ---
 
-## Étape 1 — PostgreSQL sur le VPS
+## Déployer le serveur — 3 étapes
 
-Installe PostgreSQL (installeur Windows EDB), puis dans **psql** (ou pgAdmin) :
-
-```sql
-CREATE USER dvlicense WITH PASSWORD 'un-mot-de-passe-fort';
-CREATE DATABASE datavortex_licenses OWNER dvlicense;
-```
-
-Le schéma est créé automatiquement (migrations EF) au 1er démarrage du serveur.
-
-## Étape 2 — Publier le serveur (sur TON PC)
-
+**1. Construire le bundle (sur ton PC)**
 ```bash
 pwsh ./publish-server.ps1
 ```
-→ `dist-server/` = `DataVortex.LicenseServer.exe` + `appsettings.json` + `wwwroot/`.
+→ `dist-server/` = exe + `wwwroot/` + `appsettings.json` + `appsettings.Production.json` + `server-tls.pfx`. Prêt à copier.
 
-## Étape 3 — Copier sur le VPS dans `C:\DataVortex\`
-
-- tout `dist-server/`
-- `_secrets/appsettings.Production.json` → **édite** : remplace `REPLACE_WITH_DB_PASSWORD` (celui de l'étape 1) et `REPLACE_WITH_ADMIN_PASSWORD`
-- `_secrets/server-tls.pfx`
-- `deploy/install-service.ps1`
-
-## Étape 4 — Premier lancement en console (pour récupérer le seed TOTP)
-
-Le compte admin est créé au 1er démarrage et son **secret TOTP n'est affiché qu'une fois**. En service Windows la console est masquée → fais un 1er run manuel :
-
+**2. Copier `dist-server/` sur le VPS** (ex. `C:\DataVortex\`), puis **lancer l'exe une fois en console** pour récupérer les identifiants admin :
 ```powershell
 cd C:\DataVortex
-$env:ASPNETCORE_ENVIRONMENT = "Production"
 .\DataVortex.LicenseServer.exe
 ```
-Note la ligne `SuperAdmin créé ... Secret TOTP ... : XXXX`, enrôle ce secret dans une app d'authentification (Google/Microsoft Authenticator), puis **Ctrl+C**. (Si tu l'as raté : il est aussi dans l'Observateur d'événements → Journaux Windows → Application.)
+Le 1er lancement crée la base SQLite et affiche **une seule fois** :
+```
+SuperAdmin créé (admin@datavortex.app). Mot de passe généré (affiché une seule fois) : XXXXXXXX
+Secret TOTP admin à enrôler ... : YYYYYYYY
+```
+Note le **mot de passe** + enrôle le **secret TOTP** dans Google/Microsoft Authenticator. Puis **Ctrl+C**.
+*(Tu peux fixer ton propre mot de passe à la place : mets-le dans `appsettings.Production.json` → `Admin:Password` avant de lancer.)*
 
-## Étape 5 — Installer le service (PowerShell **Administrateur**)
-
+**3. Installer le service** (PowerShell **Administrateur**)
 ```powershell
 cd C:\DataVortex
 .\install-service.ps1 -InstallDir C:\DataVortex
 ```
-Crée le service auto‑start `DataVortexLicense`, le lance en Production, redémarre au crash, ouvre **443** en entrée (l'admin reste loopback).
+Service auto-start `DataVortexLicense`, redémarre au crash, ouvre **443** en entrée.
 
-## Étape 6 — Vérifier
+## Vérifier
 
-Sur le VPS :
-```powershell
-curl.exe -k https://localhost/api/v1/ping
-curl.exe -k https://localhost/api/v1/keys      # doit renvoyer la clé publique pré-câblée
-curl.exe -k https://localhost/api/v1/admin/stats   # (sans token) 401 = OK, la route répond en loopback
-```
-Depuis ton PC (navigateur) :
-- `https://217.128.139.122/api/v1/ping` → répond ✅
-- `https://217.128.139.122/` → le **panel admin s'affiche** (accepte l'avertissement auto‑signé une fois) ✅
+Sur le VPS : `curl.exe -k https://localhost/api/v1/ping` → `{"status":"ok"}`.
+Depuis ton PC : `https://217.128.139.122/api/v1/ping` répond ; `https://217.128.139.122/` affiche le panel.
 
-## Étape 7 — Panel admin depuis ton PC (navigateur, sans RDP)
+## Panel admin (depuis ton PC, navigateur)
 
-Ouvre **`https://217.128.139.122/`** dans ton navigateur. Accepte l'avertissement de certificat auto‑signé **une fois** (ou importe le cert `server-tls.pfx` dans les *Autorités de certification racines de confiance* de ton PC pour ne plus l'avoir). Connecte‑toi (email + mot de passe + code TOTP) → tu gères/génères les licences depuis le panel.
+Ouvre **`https://217.128.139.122/`**, accepte l'avertissement auto-signé **une fois** (ou importe `server-tls.pfx` dans les *Autorités racines de confiance* de ton PC), connecte-toi (email `admin@datavortex.app` + mot de passe + code TOTP), génère/gère les licences. Pas de RDP.
 
-Pas de RDP ni de tunnel. Le panel est protégé par **login + TOTP** + rate‑limit sur le login.
-
-## Étape 8 — Build + signature + distribution du client
+## Build + signature + distribution du client
 
 ```bash
 pwsh ./publish.ps1 -Output dist        # obfusqué + HMAC injecté (lit _secrets/hmac-key.txt automatiquement)
 ```
-Puis **signe** `dist\DataVortex.exe` avec TON certificat de code‑signing :
+Puis **signe** `dist\DataVortex.exe` avec **ton** certificat de code-signing :
 ```powershell
-# cert dans le magasin Windows :
 signtool sign /fd SHA256 /a /tr http://timestamp.digicert.com /td SHA256 dist\DataVortex.exe
-# ou avec un .pfx :
-signtool sign /fd SHA256 /f mon-cert.pfx /p MOT_DE_PASSE /tr http://timestamp.digicert.com /td SHA256 dist\DataVortex.exe
 ```
-La signature active en plus l'auto‑contrôle anti‑tamper du client.
+Distribue `dist\DataVortex.exe`.
 
-**Releases GitHub** : mets le secret repo `DV_HMAC_KEY` = contenu de `_secrets/hmac-key.txt` (Settings → Secrets and variables → Actions). Le workflow injectera l'HMAC dans l'exe publié. (La signature du client reste à faire par toi sur l'artefact, GitHub ne signe pas.)
+**Releases GitHub (client uniquement)** : mets le secret repo `DV_HMAC_KEY` = contenu de `_secrets/hmac-key.txt`, puis pousse un tag `vX.Y.Z`. Le serveur, lui, **n'est jamais** publié (il contient ta clé privée) : tu le construis en local.
+
+> ⚠️ **Cohérence HMAC** : le client et le serveur doivent avoir la **même** clé HMAC. Le build local (`publish.ps1`) et le serveur la prennent tous deux de `_secrets/` → cohérents. Pour la release GitHub, le client n'a l'HMAC que si `DV_HMAC_KEY` est posé ; sinon serveur et client doivent être tous deux sans HMAC.
 
 ---
 
 ## Sécurité & maintenance
 
-- **Panel admin exposé sur Internet** : la sécurité repose sur le **login + TOTP (2FA)**. Mets un **mot de passe admin fort** (`Admin:Password` dans `appsettings.Production.json`) et garde le TOTP actif. Le login est limité à 8 essais / 5 min / IP.
-- **Restreindre par IP (optionnel, recommandé si ton IP est fixe)** : dans `appsettings.Production.json`, ajoute
-  ```json
-  "Admin": { "Email": "...", "Password": "...", "AllowedIps": ["TON.IP.PUBLIQUE"] }
-  ```
-  Seules ces IP peuvent alors atteindre le panel (les autres → `404`). Vide/absent = ouvert (l'auth gère). Attention : si ton IP est dynamique, tu risques de te bloquer.
-- **Firewall** : seul 443 est ouvert (API client + panel admin).
-- **Rotation cert TLS** : régénère `server-tls.pfx`, mets à jour `ServerCertSpkiPin` (nouveau pin) dans le client et republie. Garde l'ancien pin en second temps si tu veux une transition douce (le client accepte plusieurs pins seulement si tu l'adaptes — sinon rotation = update client obligatoire).
-- **Rotation clé de signature** : le serveur gère `kid`. Ajoute la nouvelle clé publique à `PublicKeys` (le client en accepte plusieurs) → publie l'update client → bascule l'active côté serveur → révoque l'ancienne après adoption.
-- **Reverse proxy** : il n'y en a pas. Si tu en ajoutes un (IIS/nginx) devant, active `ForwardedHeaders` côté serveur sinon le filtre loopback verra l'IP du proxy et bloquera l'admin (ou pire, l'ouvrira).
-- **Sauvegardes** : la base `datavortex_licenses` (licences + clé de signature) et `_secrets/`.
+- **Panel admin exposé** : sécurité = **login + TOTP**. Mot de passe admin fort ; login limité à 8/5 min/IP.
+- **Restreindre par IP (option)** : `"Admin": { …, "AllowedIps": ["TON.IP"] }` dans `appsettings.Production.json`.
+- **Firewall** : 443 seulement.
+- **Sauvegardes** : `_secrets/` + le fichier `C:\DataVortex\datavortex_licenses.db` (licences + clé de signature).
+- **Rotation clé de signature** : le serveur gère `kid` ; ajoute la nouvelle clé publique à `LicensingConstants.PublicKeys` → publie l'update client → bascule côté serveur.
+- **Reverse proxy** : s'il y en a un devant, active `ForwardedHeaders` sinon le filtre `AllowedIps` verra l'IP du proxy.
 
 ## Dépannage
 
-- **Le service ne démarre pas** : la base doit être joignable (migration au démarrage). Vérifie le mot de passe DB dans `appsettings.Production.json` et que PostgreSQL tourne. Logs → Observateur d'événements → Application.
-- **Le client n'active pas** : vérifie `https://217.128.139.122/api/v1/ping` depuis le réseau du client, et que le pin/clé publique du client correspondent au `server-tls.pfx`/à la clé privée déployés (mêmes `_secrets/`).
-- **`401 requête non authentifiée`** sur activate/verify : l'HMAC client ≠ serveur. Le build client doit avoir la même `DV_HMAC_KEY` que `Security:AppHmacKey` du serveur (tous deux = `_secrets/hmac-key.txt`).
+- **Service ne démarre pas** : logs → Observateur d'événements → Application. Le cert `server-tls.pfx` doit être dans le dossier de l'exe.
+- **Client n'active pas** : vérifie `https://217.128.139.122/api/v1/ping` depuis le réseau du client ; le pin/clé publique du client doivent correspondre au `server-tls.pfx`/à la clé privée déployés (mêmes `_secrets/`).
+- **`401 requête non authentifiée`** : HMAC client ≠ serveur (voir la note Cohérence HMAC).
