@@ -192,9 +192,9 @@ public partial class App : Application
         services.AddSingleton<IAccountTestRegistry, AccountTestRegistry>();
         services.AddSingleton<CleanupService>();
         services.AddSingleton<DataVortex.Core.Notifications.AccountNotifier>();
-        services.AddSingleton<IUpdateService>(sp => new GitHubUpdateService(
+        services.AddSingleton<IUpdateService>(sp => new ManifestUpdateService(
             new System.Net.Http.HttpClient(), sp.GetRequiredService<AppPaths>(),
-            sp.GetRequiredService<ILogger<GitHubUpdateService>>()));
+            sp.GetRequiredService<ILogger<ManifestUpdateService>>()));
         services.AddSingleton<ITelegramService, TelegramService>();
         services.AddSingleton<PipelineCoordinator>();
         services.AddSingleton<IPipelineCoordinator>(sp => (IPipelineCoordinator)sp.GetRequiredService<PipelineCoordinator>());

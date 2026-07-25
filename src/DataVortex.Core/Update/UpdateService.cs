@@ -6,95 +6,83 @@ using Microsoft.Extensions.Logging;
 
 namespace DataVortex.Core.Updates;
 
-/// <summary>A newer release available on GitHub.</summary>
+/// <summary>A newer build available from the distribution host.</summary>
 public sealed record UpdateInfo(Version Version, string Tag, string DownloadUrl, string? Notes, long Size);
 
 public interface IUpdateService
 {
     Version CurrentVersion { get; }
 
-    /// <summary>Queries the latest GitHub release; returns it only if newer than the running version and it
-    /// carries a downloadable .exe asset. Returns <c>null</c> otherwise (already up to date / offline / no asset).</summary>
+    /// <summary>Reads the distribution manifest; returns the newest build only if it is newer than the running
+    /// version and carries a download URL. Returns <c>null</c> otherwise (already up to date / offline).</summary>
     Task<UpdateInfo?> CheckForUpdateAsync(CancellationToken ct = default);
 
-    /// <summary>Downloads the release exe and launches an external updater that waits for this process to exit,
-    /// swaps the executable and relaunches it. Returns true once the updater is running — the caller should then
-    /// shut the app down. Self-update only works on a published single-file build.</summary>
+    /// <summary>Downloads the new exe and launches an external updater that waits for this process to exit, swaps
+    /// the executable and relaunches it. Returns true once the updater is running — the caller should then shut the
+    /// app down. Self-update only works on a published single-file build.</summary>
     Task<bool> PrepareAndLaunchUpdaterAsync(UpdateInfo info, CancellationToken ct = default);
 }
 
 /// <summary>
-/// GitHub Releases updater for the public repo. No token needed (public repo, anonymous API is enough for a
-/// version check). The actual swap is done by a tiny generated .bat so the running exe can be replaced.
+/// Self-updater driven by a small JSON manifest hosted next to the exe on the distribution host (a Cloudflare R2
+/// public bucket). <c>latest.json</c> declares the newest version + a direct download URL; the running build
+/// compares it against its own embedded version. Each release is a version-named exe (DataVortex-X.Y.Z.exe) so its
+/// URL is immutable — no stale-CDN-cache surprises on update. The swap is done by a tiny generated .bat so the
+/// running exe can be replaced. No account/token needed (public bucket).
 /// </summary>
-public sealed class GitHubUpdateService : IUpdateService
+public sealed class ManifestUpdateService : IUpdateService
 {
-    private const string Owner = "DoubleGhosty";
-    private const string Repo = "DataVortex-2";
+    // Public distribution bucket. Change this if you move hosts. The manifest lives at <BaseUrl>/latest.json.
+    private const string BaseUrl = "https://pub-564be2f53b364ef382926b5afb36fea0.r2.dev";
+    private const string ManifestUrl = BaseUrl + "/latest.json";
 
     private readonly HttpClient _http;
     private readonly AppPaths _paths;
-    private readonly ILogger<GitHubUpdateService> _log;
+    private readonly ILogger<ManifestUpdateService> _log;
 
     public Version CurrentVersion { get; } =
         Normalize(Assembly.GetEntryAssembly()?.GetName().Version ?? new Version(0, 0, 0));
 
-    public GitHubUpdateService(HttpClient http, AppPaths paths, ILogger<GitHubUpdateService> log)
+    public ManifestUpdateService(HttpClient http, AppPaths paths, ILogger<ManifestUpdateService> log)
     {
         _http = http;
         _paths = paths;
         _log = log;
-        // GitHub's API requires a User-Agent.
         if (!_http.DefaultRequestHeaders.UserAgent.Any())
             _http.DefaultRequestHeaders.UserAgent.ParseAdd("DataVortex-Updater");
-        _http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
     }
 
     public async Task<UpdateInfo?> CheckForUpdateAsync(CancellationToken ct = default)
     {
         try
         {
-            var url = $"https://api.github.com/repos/{Owner}/{Repo}/releases/latest";
+            // Cache-bust so a check is never served a stale manifest from the CDN edge.
+            var url = ManifestUrl + "?t=" + DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             using var resp = await _http.GetAsync(url, ct).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
             {
-                _log.LogInformation("Update check: GitHub returned {Code}", (int)resp.StatusCode);
+                _log.LogInformation("Update check: host returned {Code}", (int)resp.StatusCode);
                 return null;
             }
 
             var s = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             using var doc = JsonDocument.Parse(s);
-            var root = doc.RootElement;
+            var r = doc.RootElement;
 
-            var tag = root.TryGetProperty("tag_name", out var t) ? t.GetString() : null;
-            var latest = tag is null ? null : ParseVersion(tag);
-            if (latest is null) return null;
+            var verStr = r.TryGetProperty("version", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+            var dl = r.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String ? u.GetString() : null;
+            var latest = verStr is null ? null : ParseVersion(verStr);
+            if (latest is null || string.IsNullOrEmpty(dl)) return null;
 
-            string? dl = null;
-            long size = 0;
-            if (root.TryGetProperty("assets", out var assets) && assets.ValueKind == JsonValueKind.Array)
+            if (latest <= CurrentVersion)
             {
-                foreach (var a in assets.EnumerateArray())
-                {
-                    var name = a.TryGetProperty("name", out var n) ? n.GetString() : null;
-                    if (name is not null && name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-                    {
-                        dl = a.TryGetProperty("browser_download_url", out var u) ? u.GetString() : null;
-                        size = a.TryGetProperty("size", out var sz) ? sz.GetInt64() : 0;
-                        break;
-                    }
-                }
-            }
-
-            if (latest <= CurrentVersion || string.IsNullOrEmpty(dl))
-            {
-                _log.LogInformation("Update check: latest {Latest} vs current {Current}, asset={HasAsset}",
-                    latest, CurrentVersion, dl is not null);
+                _log.LogInformation("Update check: latest {Latest} vs current {Current}", latest, CurrentVersion);
                 return null;
             }
 
-            var notes = root.TryGetProperty("body", out var b) ? b.GetString() : null;
-            return new UpdateInfo(latest, tag!, dl!, notes, size);
+            var notes = r.TryGetProperty("notes", out var b) && b.ValueKind == JsonValueKind.String ? b.GetString() : null;
+            long size = r.TryGetProperty("size", out var sz) && sz.ValueKind == JsonValueKind.Number ? sz.GetInt64() : 0;
+            return new UpdateInfo(latest, verStr!, dl!, notes, size);
         }
         catch (Exception ex)
         {
@@ -165,7 +153,7 @@ public sealed class GitHubUpdateService : IUpdateService
         }
     }
 
-    /// <summary>Parses a tag like "v1.2.3" into a 3-part Version, ignoring any suffix.</summary>
+    /// <summary>Parses a version like "1.2.3" (or "v1.2.3") into a 3-part Version, ignoring any suffix.</summary>
     private static Version? ParseVersion(string tag)
     {
         var s = tag.TrimStart('v', 'V').Trim();

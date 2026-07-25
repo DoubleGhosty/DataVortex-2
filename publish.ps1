@@ -15,7 +15,8 @@
 param(
   [string]$Output  = "dist",
   [string]$Version = "",
-  [string]$HmacKey = ""
+  [string]$HmacKey = "",
+  [string]$R2Base  = "https://pub-564be2f53b364ef382926b5afb36fea0.r2.dev"
 )
 $ErrorActionPreference = "Stop"
 # Native (dotnet/obfuscar) exit codes are checked explicitly below; don't let PS 7.4+ auto-throw on
@@ -75,3 +76,27 @@ dotnet publish $proj -c Release -r $rid --self-contained true `
   @verArgs --no-build -o $Output -v q --nologo
 if ($LASTEXITCODE -ne 0) { throw "publish failed" }
 Write-Host "OK -> $Output\DataVortex.exe" -ForegroundColor Green
+
+Write-Host "== 4/4 sign + version + manifest ==" -ForegroundColor Cyan
+$exe = Join-Path $Output "DataVortex.exe"
+$ver = $Version
+if (-not $ver) { $ver = ((Get-Item $exe).VersionInfo.ProductVersion -split '\+')[0] }
+# Code-sign with the self-signed cert in _secrets so the anti-tamper self-check is active. Skipped if absent (CI).
+if (Test-Path "_secrets/codesign.pfx") {
+  $pfxpw = (Get-Content "_secrets/codesign-pfx-password.txt" -Raw).Trim()
+  $flags = [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]"PersistKeySet,Exportable"
+  $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new((Resolve-Path "_secrets/codesign.pfx").Path, $pfxpw, $flags)
+  $sig = Set-AuthenticodeSignature -FilePath $exe -Certificate $cert -TimestampServer "http://timestamp.digicert.com" -HashAlgorithm SHA256
+  $signer = (Get-AuthenticodeSignature $exe).SignerCertificate
+  if (-not $signer) { throw "signing failed: $($sig.StatusMessage)" }
+  Write-Host "   signed: $($signer.Subject)"
+} else {
+  Write-Host "   (no _secrets/codesign.pfx -> unsigned)" -ForegroundColor DarkYellow
+}
+# Version-named copy (immutable CDN URL) + the update manifest. Upload BOTH to R2.
+$verExe = Join-Path $Output "DataVortex-$ver.exe"
+Copy-Item $exe $verExe -Force
+$manifest = [ordered]@{ version = $ver; url = "$R2Base/DataVortex-$ver.exe"; notes = ""; size = (Get-Item $verExe).Length }
+$manifest | ConvertTo-Json | Set-Content (Join-Path $Output "latest.json") -Encoding UTF8
+Write-Host "   -> $verExe" -ForegroundColor Green
+Write-Host "   -> $Output\latest.json  (upload DataVortex-$ver.exe + latest.json to R2)" -ForegroundColor Green
