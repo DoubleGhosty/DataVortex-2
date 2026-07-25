@@ -25,7 +25,7 @@ public static class LicensingConstants
     };
 
     /// <summary>Default licence-server base URL. Overridable via <c>AppSettings.LicenseServerUrl</c>.</summary>
-    public const string DefaultServerUrl = "https://217.128.139.122";
+    public const string DefaultServerUrl = "https://217.128.139.122:8443";
 
     /// <summary>Shared app-authentication key (HMAC), added to each request as X-Signature/X-Timestamp/X-Nonce and
     /// matched by the server's <c>Security:AppHmacKey</c>. It is a SECRET and is <b>injected at build time, never
