@@ -23,8 +23,8 @@ namespace DataVortex.LicenseServer.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("ActivatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("ActivatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<bool>("Active")
                         .HasColumnType("INTEGER");
@@ -35,11 +35,11 @@ namespace DataVortex.LicenseServer.Migrations
                     b.Property<string>("Ip")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("LastSeenAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("LastSeenAt")
+                        .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset>("LeaseExpiresAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("LeaseExpiresAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<Guid>("LicenseId")
                         .HasColumnType("TEXT");
@@ -59,8 +59,8 @@ namespace DataVortex.LicenseServer.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Email")
                         .IsRequired()
@@ -95,8 +95,8 @@ namespace DataVortex.LicenseServer.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("At")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("At")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Ip")
                         .HasColumnType("TEXT");
@@ -129,8 +129,8 @@ namespace DataVortex.LicenseServer.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("FirstSeen")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("FirstSeen")
+                        .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
 
@@ -145,8 +145,8 @@ namespace DataVortex.LicenseServer.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ExpiresAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long?>("ExpiresAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Features")
                         .IsRequired()
@@ -155,8 +155,8 @@ namespace DataVortex.LicenseServer.Migrations
                     b.Property<int>("FingerprintTolerancePercent")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset>("IssuedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("IssuedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("KeyHash")
                         .IsRequired()
@@ -193,8 +193,8 @@ namespace DataVortex.LicenseServer.Migrations
                     b.Property<bool>("Active")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset>("ExpiresAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("ExpiresAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("FingerprintHash")
                         .IsRequired()
@@ -203,8 +203,8 @@ namespace DataVortex.LicenseServer.Migrations
                     b.Property<string>("Ip")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("LastRefreshAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("LastRefreshAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<Guid>("LicenseId")
                         .HasColumnType("TEXT");
@@ -213,8 +213,8 @@ namespace DataVortex.LicenseServer.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("StartedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("StartedAt")
+                        .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
 
@@ -233,8 +233,8 @@ namespace DataVortex.LicenseServer.Migrations
                     b.Property<bool>("Active")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("PrivateKeyPkcs8")
                         .IsRequired()
@@ -258,8 +258,8 @@ namespace DataVortex.LicenseServer.Migrations
                     b.Property<string>("Company")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("TEXT");
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Email")
                         .IsRequired()

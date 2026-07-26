@@ -1,10 +1,24 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace DataVortex.LicenseServer;
+
+/// <summary>Stores every <see cref="DateTimeOffset"/> as UTC ticks (a sortable INTEGER). SQLite has no native
+/// DateTimeOffset and, stored as TEXT, cannot ORDER BY or compare it — the query throws at runtime. All our
+/// timestamps are UTC, so ticks preserve both the instant and the ordering, and every date filter/sort (admin
+/// list, anomaly windows, session expiry, …) works on SQLite.</summary>
+public sealed class DateTimeOffsetToUtcTicksConverter : ValueConverter<DateTimeOffset, long>
+{
+    public DateTimeOffsetToUtcTicksConverter()
+        : base(v => v.UtcTicks, v => new DateTimeOffset(v, TimeSpan.Zero)) { }
+}
 
 public sealed class LicenseDbContext : DbContext
 {
     public LicenseDbContext(DbContextOptions<LicenseDbContext> options) : base(options) { }
+
+    protected override void ConfigureConventions(ModelConfigurationBuilder b)
+        => b.Properties<DateTimeOffset>().HaveConversion<DateTimeOffsetToUtcTicksConverter>();
 
     public DbSet<User> Users => Set<User>();
     public DbSet<License> Licenses => Set<License>();

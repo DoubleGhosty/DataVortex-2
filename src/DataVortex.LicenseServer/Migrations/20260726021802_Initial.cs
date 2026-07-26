@@ -20,7 +20,7 @@ namespace DataVortex.LicenseServer.Migrations
                     PasswordHash = table.Column<string>(type: "TEXT", nullable: false),
                     TotpSecret = table.Column<string>(type: "TEXT", nullable: false),
                     Role = table.Column<int>(type: "INTEGER", nullable: false),
-                    CreatedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false)
+                    CreatedAt = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -36,7 +36,7 @@ namespace DataVortex.LicenseServer.Migrations
                     Action = table.Column<string>(type: "TEXT", nullable: false),
                     Result = table.Column<string>(type: "TEXT", nullable: false),
                     Ip = table.Column<string>(type: "TEXT", nullable: true),
-                    At = table.Column<DateTimeOffset>(type: "TEXT", nullable: false)
+                    At = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -50,7 +50,7 @@ namespace DataVortex.LicenseServer.Migrations
                     Id = table.Column<Guid>(type: "TEXT", nullable: false),
                     FingerprintHash = table.Column<string>(type: "TEXT", nullable: false),
                     ComponentsJson = table.Column<string>(type: "TEXT", nullable: false),
-                    FirstSeen = table.Column<DateTimeOffset>(type: "TEXT", nullable: false)
+                    FirstSeen = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -65,7 +65,7 @@ namespace DataVortex.LicenseServer.Migrations
                     PublicKeySpki = table.Column<string>(type: "TEXT", nullable: false),
                     PrivateKeyPkcs8 = table.Column<string>(type: "TEXT", nullable: false),
                     Active = table.Column<bool>(type: "INTEGER", nullable: false),
-                    CreatedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false)
+                    CreatedAt = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -79,7 +79,7 @@ namespace DataVortex.LicenseServer.Migrations
                     Id = table.Column<Guid>(type: "TEXT", nullable: false),
                     Email = table.Column<string>(type: "TEXT", nullable: false),
                     Company = table.Column<string>(type: "TEXT", nullable: true),
-                    CreatedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false)
+                    CreatedAt = table.Column<long>(type: "INTEGER", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -98,8 +98,8 @@ namespace DataVortex.LicenseServer.Migrations
                     MaxActivations = table.Column<int>(type: "INTEGER", nullable: false),
                     Features = table.Column<string>(type: "TEXT", nullable: false),
                     FingerprintTolerancePercent = table.Column<int>(type: "INTEGER", nullable: false),
-                    IssuedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
-                    ExpiresAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: true)
+                    IssuedAt = table.Column<long>(type: "INTEGER", nullable: false),
+                    ExpiresAt = table.Column<long>(type: "INTEGER", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -120,9 +120,9 @@ namespace DataVortex.LicenseServer.Migrations
                     LicenseId = table.Column<Guid>(type: "TEXT", nullable: false),
                     DeviceId = table.Column<Guid>(type: "TEXT", nullable: false),
                     Active = table.Column<bool>(type: "INTEGER", nullable: false),
-                    ActivatedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
-                    LastSeenAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
-                    LeaseExpiresAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
+                    ActivatedAt = table.Column<long>(type: "INTEGER", nullable: false),
+                    LastSeenAt = table.Column<long>(type: "INTEGER", nullable: false),
+                    LeaseExpiresAt = table.Column<long>(type: "INTEGER", nullable: false),
                     Ip = table.Column<string>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
@@ -151,9 +151,9 @@ namespace DataVortex.LicenseServer.Migrations
                     FingerprintHash = table.Column<string>(type: "TEXT", nullable: false),
                     SessionKey = table.Column<string>(type: "TEXT", nullable: false),
                     Active = table.Column<bool>(type: "INTEGER", nullable: false),
-                    StartedAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
-                    LastRefreshAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
-                    ExpiresAt = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
+                    StartedAt = table.Column<long>(type: "INTEGER", nullable: false),
+                    LastRefreshAt = table.Column<long>(type: "INTEGER", nullable: false),
+                    ExpiresAt = table.Column<long>(type: "INTEGER", nullable: false),
                     Ip = table.Column<string>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
